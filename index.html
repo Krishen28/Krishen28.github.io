@@ -61,9 +61,11 @@ function init(){
   const mGeo=new THREE.BoxGeometry(2,2,2);
   const mMat=new THREE.MeshPhongMaterial({color:0xff0000});
   for(let i=0;i<5;i++){
-    const m=new THREE.Mesh(mGeo,mMat);
+    const m=new THREE.Mesh(mGeo,mMat.clone());
     m.position.set(Math.random()*80-40,1,Math.random()*80-40);
-    m.health = 3; // 👈 new: monsters take 3 hits
+    m.health = 3;
+    m.isDead = false;
+    m.fade = 1; // fade-out opacity
     scene.add(m);
     monsters.push(m);
   }
@@ -131,21 +133,36 @@ function moveMonsters(){
   const playerPos=camera.position;
   for(let i=monsters.length-1;i>=0;i--){
     const m=monsters[i];
+
+    // if dead, fade out
+    if(m.isDead){
+      m.fade -= 0.02;
+      m.material.transparent = true;
+      m.material.opacity = m.fade;
+      if(m.fade <= 0){
+        scene.remove(m);
+        monsters.splice(i,1);
+      }
+      continue;
+    }
+
     const toPlayer=playerPos.clone().sub(m.position);
     const dist=toPlayer.length();
 
-    // Attack check: only when sword is swinging forward
+    // attack check
     if(dist<1.8 && isSwinging && swordSwing<Math.PI/3){
-      m.health--; // 👈 decrease health
-      m.material.color.setHSL(0,1,m.health/3); // fade color to show damage
-      if(m.health<=0){
-        scene.remove(m);
-        monsters.splice(i,1);
-        continue;
+      m.health--;
+      if(m.health > 0){
+        // change color as damage
+        m.material.color.setHSL(0, 1, m.health/3);
+      } else {
+        // dead: turn gray and stop moving
+        m.isDead = true;
+        m.material.color.set(0x222222);
       }
     }
 
-    // Monster movement
+    // move toward player
     toPlayer.y=0;
     toPlayer.normalize();
     m.position.addScaledVector(toPlayer,0.05);
