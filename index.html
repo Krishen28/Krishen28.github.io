@@ -6,11 +6,30 @@
 <title>Block Maze Sword Game</title>
 <style>
   html,body {margin:0;overflow:hidden;height:100%;background:#000;color:white;font-family:sans-serif;}
-  #info{position:absolute;top:10px;width:100%;text-align:center;z-index:1;}
+  #info{position:absolute;top:10px;width:100%;text-align:center;z-index:2;}
+  #health-container{
+    position:absolute;
+    top:40px;
+    left:50%;
+    transform:translateX(-50%);
+    width:300px;
+    height:20px;
+    background:#444;
+    border:2px solid white;
+    z-index:2;
+  }
+  #health-bar{
+    width:100%;
+    height:100%;
+    background:#0f0;
+  }
 </style>
 </head>
 <body>
 <div id="info">W A S D = Move | Mouse = Look | Click = Swing Sword</div>
+<div id="health-container">
+  <div id="health-bar"></div>
+</div>
 
 <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 
@@ -19,6 +38,9 @@ let scene,camera,renderer;
 const keys={},monsters=[],walls=[];
 let yaw=0,pitch=0;
 let sword,swordSwing=0,isSwinging=false;
+
+// Player health (1 = full, 0 = dead)
+let playerHealth = 1;
 
 init();
 animate();
@@ -65,7 +87,7 @@ function init(){
     m.position.set(Math.random()*80-40,1,Math.random()*80-40);
     m.health = 3;
     m.isDead = false;
-    m.fade = 1; // fade-out opacity
+    m.fade = 1;
     scene.add(m);
     monsters.push(m);
   }
@@ -106,11 +128,21 @@ function init(){
   });
 }
 
+// Update health bar
+function updateHealthBar(){
+  const bar = document.getElementById("health-bar");
+  bar.style.width = `${playerHealth*100}%`;
+  if(playerHealth > 0.6) bar.style.background = "#0f0";
+  else if(playerHealth > 0.3) bar.style.background = "#ff0";
+  else bar.style.background = "#f00";
+}
+
 function animate(){
   requestAnimationFrame(animate);
   movePlayer();
   moveMonsters();
   updateSword();
+  updateHealthBar();
   renderer.render(scene,camera);
 }
 
@@ -134,7 +166,7 @@ function moveMonsters(){
   for(let i=monsters.length-1;i>=0;i--){
     const m=monsters[i];
 
-    // if dead, fade out
+    // Dead monsters fade out
     if(m.isDead){
       m.fade -= 0.02;
       m.material.transparent = true;
@@ -149,17 +181,21 @@ function moveMonsters(){
     const toPlayer=playerPos.clone().sub(m.position);
     const dist=toPlayer.length();
 
-    // attack check
+    // sword attack
     if(dist<1.8 && isSwinging && swordSwing<Math.PI/3){
       m.health--;
       if(m.health > 0){
-        // change color as damage
         m.material.color.setHSL(0, 1, m.health/3);
       } else {
-        // dead: turn gray and stop moving
         m.isDead = true;
         m.material.color.set(0x222222);
       }
+    }
+
+    // damage player if touching
+    if(dist<1.5 && !m.isDead){
+      playerHealth -= 1/16;
+      playerHealth = Math.max(0, playerHealth);
     }
 
     // move toward player
