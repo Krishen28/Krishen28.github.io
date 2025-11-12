@@ -23,13 +23,22 @@
     height:100%;
     background:#0f0;
   }
+  #game-over{
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    font-size:50px;
+    color:red;
+    display:none;
+    z-index:3;
+  }
 </style>
 </head>
 <body>
 <div id="info">W A S D = Move | Mouse = Look | Click = Swing Sword</div>
-<div id="health-container">
-  <div id="health-bar"></div>
-</div>
+<div id="health-container"><div id="health-bar"></div></div>
+<div id="game-over">GAME OVER</div>
 
 <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 
@@ -39,8 +48,8 @@ const keys={},monsters=[],walls=[];
 let yaw=0,pitch=0;
 let sword,swordSwing=0,isSwinging=false;
 
-// Player health (1 = full, 0 = dead)
 let playerHealth = 1;
+let gameOver = false;
 
 init();
 animate();
@@ -79,18 +88,8 @@ function init(){
     }
   }
 
-  // monsters
-  const mGeo=new THREE.BoxGeometry(2,2,2);
-  const mMat=new THREE.MeshPhongMaterial({color:0xff0000});
-  for(let i=0;i<5;i++){
-    const m=new THREE.Mesh(mGeo,mMat.clone());
-    m.position.set(Math.random()*80-40,1,Math.random()*80-40);
-    m.health = 3;
-    m.isDead = false;
-    m.fade = 1;
-    scene.add(m);
-    monsters.push(m);
-  }
+  // initial monsters
+  spawnMonsters(5);
 
   // sword
   const sGeo=new THREE.BoxGeometry(0.2,1.5,0.2);
@@ -115,7 +114,7 @@ function init(){
   });
 
   document.addEventListener("click",()=>{
-    if(!isSwinging){
+    if(!isSwinging && !gameOver){
       isSwinging=true;
       swordSwing=0;
     }
@@ -126,23 +125,47 @@ function init(){
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth,innerHeight);
   });
+
+  // spawn new monsters every 5 seconds
+  setInterval(()=>{ if(!gameOver) spawnMonsters(2); }, 5000);
 }
 
-// Update health bar
+// spawn n monsters randomly
+function spawnMonsters(n){
+  const mGeo=new THREE.BoxGeometry(2,2,2);
+  for(let i=0;i<n;i++){
+    const mMat=new THREE.MeshPhongMaterial({color:0xff0000});
+    const m=new THREE.Mesh(mGeo,mMat.clone());
+    m.position.set(Math.random()*80-40,1,Math.random()*80-40);
+    m.health = 3;
+    m.isDead = false;
+    m.fade = 1;
+    scene.add(m);
+    monsters.push(m);
+  }
+}
+
 function updateHealthBar(){
   const bar = document.getElementById("health-bar");
   bar.style.width = `${playerHealth*100}%`;
   if(playerHealth > 0.6) bar.style.background = "#0f0";
   else if(playerHealth > 0.3) bar.style.background = "#ff0";
   else bar.style.background = "#f00";
+
+  if(playerHealth <= 0 && !gameOver){
+    gameOver = true;
+    document.getElementById("game-over").style.display = "block";
+  }
 }
 
 function animate(){
   requestAnimationFrame(animate);
-  movePlayer();
-  moveMonsters();
-  updateSword();
-  updateHealthBar();
+  if(!gameOver){
+    movePlayer();
+    moveMonsters();
+    updateSword();
+    updateHealthBar();
+  }
   renderer.render(scene,camera);
 }
 
@@ -185,7 +208,7 @@ function moveMonsters(){
     if(dist<1.8 && isSwinging && swordSwing<Math.PI/3){
       m.health--;
       if(m.health > 0){
-        m.material.color.setHSL(0, 1, m.health/3);
+        m.material.color.setHSL(0,1,m.health/3);
       } else {
         m.isDead = true;
         m.material.color.set(0x222222);
