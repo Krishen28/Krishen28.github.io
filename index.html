@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Block Maze Sword Game</title>
+<title>Maze Sword Game</title>
 <style>
   html,body {margin:0;overflow:hidden;height:100%;background:#000;color:white;font-family:sans-serif;}
   #info{position:absolute;top:10px;width:100%;text-align:center;z-index:1;}
@@ -37,13 +37,14 @@ let sword,swordSwing=0,isSwinging=false;
 let playerHealth=1;
 let spawnTimer=0;
 let isDead=false;
+let monsterDifficulty=1;
 
 init();
 animate();
 
 function init(){
   scene=new THREE.Scene();
-  scene.background=new THREE.Color(0x87ceeb);
+  scene.background=new THREE.Color(0x222244);
 
   camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
   camera.position.set(0,2,8);
@@ -55,25 +56,14 @@ function init(){
 
   // floor
   const floor=new THREE.Mesh(
-    new THREE.PlaneGeometry(300,300),
-    new THREE.MeshPhongMaterial({color:0x55aa55})
+    new THREE.PlaneGeometry(200,200),
+    new THREE.MeshPhongMaterial({color:0x446644})
   );
   floor.rotation.x=-Math.PI/2;
   scene.add(floor);
 
-  // maze walls
-  const wallGeo=new THREE.BoxGeometry(4,4,4);
-  const wallMat=new THREE.MeshPhongMaterial({color:0x888888});
-  for(let x=-40;x<=40;x+=8){
-    for(let z=-40;z<=40;z+=8){
-      if(Math.random()<0.3){
-        const wall=new THREE.Mesh(wallGeo,wallMat);
-        wall.position.set(x,2,z);
-        scene.add(wall);
-        walls.push(wall);
-      }
-    }
-  }
+  // MAZE GENERATION (simple grid maze using recursive backtracking)
+  generateMaze(10, 10, 8);
 
   // sword
   const sGeo=new THREE.BoxGeometry(0.2,1.5,0.2);
@@ -122,6 +112,76 @@ function animate(){
   renderer.render(scene,camera);
 }
 
+// -------------------- MAZE GENERATION --------------------
+function generateMaze(rows, cols, cellSize){
+  const grid = [];
+  for(let z=0;z<rows;z++){
+    grid[z]=[];
+    for(let x=0;x<cols;x++){
+      grid[z][x]={visited:false,walls:[true,true,true,true]}; // top right bottom left
+    }
+  }
+
+  const stack=[];
+  let cx=0,cz=0;
+  grid[cz][cx].visited=true;
+  stack.push({x:cx,z:cz});
+
+  while(stack.length>0){
+    const current=stack[stack.length-1];
+    const {x,z}=current;
+    const neighbors=[];
+
+    const directions=[
+      {dx:0,dz:-1,wall:0,opp:2}, // top
+      {dx:1,dz:0,wall:1,opp:3},  // right
+      {dx:0,dz:1,wall:2,opp:0},  // bottom
+      {dx:-1,dz:0,wall:3,opp:1}  // left
+    ];
+
+    for(const dir of directions){
+      const nx=x+dir.dx,nz=z+dir.dz;
+      if(nx>=0&&nx<cols&&nz>=0&&nz<rows&&!grid[nz][nx].visited){
+        neighbors.push({...dir,nx,nz});
+      }
+    }
+
+    if(neighbors.length>0){
+      const next=neighbors[Math.floor(Math.random()*neighbors.length)];
+      grid[z][x].walls[next.wall]=false;
+      grid[next.nz][next.nx].walls[next.opp]=false;
+      grid[next.nz][next.nx].visited=true;
+      stack.push({x:next.nx,z:next.nz});
+    }else{
+      stack.pop();
+    }
+  }
+
+  // Build 3D walls
+  const wallGeo=new THREE.BoxGeometry(cellSize,4,1);
+  const wallMat=new THREE.MeshPhongMaterial({color:0x777777});
+  for(let z=0;z<rows;z++){
+    for(let x=0;x<cols;x++){
+      const cell=grid[z][x];
+      const wx=x*cellSize - (cols*cellSize)/2;
+      const wz=z*cellSize - (rows*cellSize)/2;
+      if(cell.walls[0]) addWall(wx,2,wz-cellSize/2,0);
+      if(cell.walls[1]) addWall(wx+cellSize/2,2,wz,Math.PI/2);
+      if(cell.walls[2]) addWall(wx,2,wz+cellSize/2,0);
+      if(cell.walls[3]) addWall(wx-cellSize/2,2,wz,Math.PI/2);
+    }
+  }
+
+  function addWall(x,y,z,rot){
+    const wall=new THREE.Mesh(wallGeo,wallMat);
+    wall.position.set(x,y,z);
+    wall.rotation.y=rot;
+    scene.add(wall);
+    walls.push(wall);
+  }
+}
+
+// -------------------- GAME FUNCTIONS --------------------
 function movePlayer(){
   const speed=0.3;
   const dir=new THREE.Vector3();
@@ -144,7 +204,7 @@ function movePlayer(){
     const dx=newPos.x-w.position.x;
     const dz=newPos.z-w.position.z;
     const dist=Math.sqrt(dx*dx+dz*dz);
-    if(dist<3){blocked=true;break;}
+    if(dist<2){blocked=true;break;}
   }
 
   if(!blocked) camera.position.copy(newPos);
@@ -155,7 +215,8 @@ function spawnMonster(){
   const mMat=new THREE.MeshPhongMaterial({color:0xff0000});
   const m=new THREE.Mesh(mGeo,mMat.clone());
   m.position.set(0,1,-50 + Math.random()*10 - 5);
-  m.health=3;
+  m.health=monsterDifficulty;
+  m.maxHealth=monsterDifficulty;
   m.isDead=false;
   m.fade=1;
   scene.add(m);
@@ -163,8 +224,8 @@ function spawnMonster(){
 }
 
 function updateSpawner(){
-  spawnTimer += 1;
-  if(spawnTimer > 120){
+  spawnTimer++;
+  if(spawnTimer>180){ // every 3 seconds
     spawnTimer=0;
     spawnMonster();
   }
@@ -190,7 +251,7 @@ function moveMonsters(){
     const dist=toPlayer.length();
 
     if(dist<2){
-      playerHealth -= 1/160; // gradual damage
+      playerHealth -= 1/160;
       updateHealthBar();
       if(playerHealth<=0 && !isDead){
         playerDies();
@@ -200,10 +261,11 @@ function moveMonsters(){
     if(dist<2 && isSwinging && swordSwing<Math.PI/3){
       m.health--;
       if(m.health>0){
-        m.material.color.setHSL(0,1,m.health/3);
+        m.material.color.setHSL(0,1,m.health/m.maxHealth/2+0.2);
       }else{
         m.isDead=true;
         m.material.color.set(0x222222);
+        monsterDifficulty++; // increase next monster difficulty
       }
     }
 
@@ -218,6 +280,7 @@ function playerDies(){
   document.getElementById("deathMessage").style.display="block";
   setTimeout(()=>{
     playerHealth=1;
+    monsterDifficulty=1;
     updateHealthBar();
     document.getElementById("deathMessage").style.display="none";
     isDead=false;
