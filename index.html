@@ -6,39 +6,20 @@
 <title>Block Maze Sword Game</title>
 <style>
   html,body {margin:0;overflow:hidden;height:100%;background:#000;color:white;font-family:sans-serif;}
-  #info{position:absolute;top:10px;width:100%;text-align:center;z-index:2;}
-  #health-container{
-    position:absolute;
-    top:40px;
-    left:50%;
-    transform:translateX(-50%);
-    width:300px;
-    height:20px;
-    background:#444;
-    border:2px solid white;
-    z-index:2;
+  #info{position:absolute;top:10px;width:100%;text-align:center;z-index:1;}
+  #healthbar {
+    position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+    width:60%;height:20px;background:#333;border:2px solid #fff;
   }
-  #health-bar{
-    width:100%;
-    height:100%;
-    background:#0f0;
-  }
-  #game-over{
-    position:absolute;
-    top:50%;
-    left:50%;
-    transform:translate(-50%,-50%);
-    font-size:50px;
-    color:red;
-    display:none;
-    z-index:3;
+  #health {
+    height:100%;background:#0f0;width:100%;
+    transition:width 0.2s linear;
   }
 </style>
 </head>
 <body>
 <div id="info">W A S D = Move | Mouse = Look | Click = Swing Sword</div>
-<div id="health-container"><div id="health-bar"></div></div>
-<div id="game-over">GAME OVER</div>
+<div id="healthbar"><div id="health"></div></div>
 
 <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 
@@ -47,9 +28,8 @@ let scene,camera,renderer;
 const keys={},monsters=[],walls=[];
 let yaw=0,pitch=0;
 let sword,swordSwing=0,isSwinging=false;
-
-let playerHealth = 1;
-let gameOver = false;
+let playerHealth=1;
+let spawnTimer=0;
 
 init();
 animate();
@@ -88,9 +68,6 @@ function init(){
     }
   }
 
-  // initial monsters
-  spawnMonsters(5);
-
   // sword
   const sGeo=new THREE.BoxGeometry(0.2,1.5,0.2);
   const sMat=new THREE.MeshPhongMaterial({color:0xccaa00});
@@ -114,7 +91,7 @@ function init(){
   });
 
   document.addEventListener("click",()=>{
-    if(!isSwinging && !gameOver){
+    if(!isSwinging){
       isSwinging=true;
       swordSwing=0;
     }
@@ -125,47 +102,14 @@ function init(){
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth,innerHeight);
   });
-
-  // spawn new monsters every 5 seconds
-  setInterval(()=>{ if(!gameOver) spawnMonsters(2); }, 5000);
-}
-
-// spawn n monsters randomly
-function spawnMonsters(n){
-  const mGeo=new THREE.BoxGeometry(2,2,2);
-  for(let i=0;i<n;i++){
-    const mMat=new THREE.MeshPhongMaterial({color:0xff0000});
-    const m=new THREE.Mesh(mGeo,mMat.clone());
-    m.position.set(Math.random()*80-40,1,Math.random()*80-40);
-    m.health = 3;
-    m.isDead = false;
-    m.fade = 1;
-    scene.add(m);
-    monsters.push(m);
-  }
-}
-
-function updateHealthBar(){
-  const bar = document.getElementById("health-bar");
-  bar.style.width = `${playerHealth*100}%`;
-  if(playerHealth > 0.6) bar.style.background = "#0f0";
-  else if(playerHealth > 0.3) bar.style.background = "#ff0";
-  else bar.style.background = "#f00";
-
-  if(playerHealth <= 0 && !gameOver){
-    gameOver = true;
-    document.getElementById("game-over").style.display = "block";
-  }
 }
 
 function animate(){
   requestAnimationFrame(animate);
-  if(!gameOver){
-    movePlayer();
-    moveMonsters();
-    updateSword();
-    updateHealthBar();
-  }
+  movePlayer();
+  moveMonsters();
+  updateSword();
+  updateSpawner();
   renderer.render(scene,camera);
 }
 
@@ -180,8 +124,46 @@ function movePlayer(){
 
   const forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
   const right=new THREE.Vector3(Math.sin(yaw+Math.PI/2),0,Math.cos(yaw+Math.PI/2));
-  camera.position.addScaledVector(forward,dir.z*speed);
-  camera.position.addScaledVector(right,dir.x*speed);
+  const move=new THREE.Vector3();
+  move.addScaledVector(forward,dir.z*speed);
+  move.addScaledVector(right,dir.x*speed);
+
+  // tentative new position
+  const newPos=camera.position.clone().add(move);
+  let blocked=false;
+
+  // check collision with walls
+  for(const w of walls){
+    const dx=newPos.x-w.position.x;
+    const dz=newPos.z-w.position.z;
+    const dist=Math.sqrt(dx*dx+dz*dz);
+    if(dist<3){ // roughly wall size/2 + player radius
+      blocked=true;
+      break;
+    }
+  }
+
+  if(!blocked) camera.position.copy(newPos);
+}
+
+function spawnMonster(){
+  const mGeo=new THREE.BoxGeometry(2,2,2);
+  const mMat=new THREE.MeshPhongMaterial({color:0xff0000});
+  const m=new THREE.Mesh(mGeo,mMat.clone());
+  m.position.set(0,1,-50 + Math.random()*10 - 5);
+  m.health=3;
+  m.isDead=false;
+  m.fade=1;
+  scene.add(m);
+  monsters.push(m);
+}
+
+function updateSpawner(){
+  spawnTimer += 1;
+  if(spawnTimer > 120){ // every ~2 seconds
+    spawnTimer=0;
+    spawnMonster();
+  }
 }
 
 function moveMonsters(){
@@ -189,12 +171,11 @@ function moveMonsters(){
   for(let i=monsters.length-1;i>=0;i--){
     const m=monsters[i];
 
-    // Dead monsters fade out
     if(m.isDead){
       m.fade -= 0.02;
       m.material.transparent = true;
       m.material.opacity = m.fade;
-      if(m.fade <= 0){
+      if(m.fade<=0){
         scene.remove(m);
         monsters.splice(i,1);
       }
@@ -204,21 +185,26 @@ function moveMonsters(){
     const toPlayer=playerPos.clone().sub(m.position);
     const dist=toPlayer.length();
 
-    // sword attack
-    if(dist<1.8 && isSwinging && swordSwing<Math.PI/3){
-      m.health--;
-      if(m.health > 0){
-        m.material.color.setHSL(0,1,m.health/3);
-      } else {
-        m.isDead = true;
-        m.material.color.set(0x222222);
+    // attack if close
+    if(dist<2){
+      playerHealth -= 1/16;
+      updateHealthBar();
+      if(playerHealth<=0){
+        alert("You Died! Refresh to restart.");
+        playerHealth=1;
+        updateHealthBar();
       }
     }
 
-    // damage player if touching
-    if(dist<1.5 && !m.isDead){
-      playerHealth -= 1/16;
-      playerHealth = Math.max(0, playerHealth);
+    // sword hit
+    if(dist<2 && isSwinging && swordSwing<Math.PI/3){
+      m.health--;
+      if(m.health>0){
+        m.material.color.setHSL(0,1,m.health/3);
+      }else{
+        m.isDead=true;
+        m.material.color.set(0x222222);
+      }
     }
 
     // move toward player
@@ -226,6 +212,15 @@ function moveMonsters(){
     toPlayer.normalize();
     m.position.addScaledVector(toPlayer,0.05);
   }
+}
+
+function updateHealthBar(){
+  playerHealth=Math.max(0,Math.min(1,playerHealth));
+  const healthDiv=document.getElementById("health");
+  healthDiv.style.width=(playerHealth*100)+"%";
+  if(playerHealth>0.5) healthDiv.style.background="#0f0";
+  else if(playerHealth>0.25) healthDiv.style.background="#ff0";
+  else healthDiv.style.background="#f00";
 }
 
 function updateSword(){
