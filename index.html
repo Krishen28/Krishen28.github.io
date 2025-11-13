@@ -15,11 +15,17 @@
     height:100%;background:#0f0;width:100%;
     transition:width 0.2s linear;
   }
+  #deathMessage {
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    font-size:48px;color:red;font-weight:bold;display:none;z-index:10;
+    text-shadow:2px 2px 8px black;
+  }
 </style>
 </head>
 <body>
 <div id="info">W A S D = Move | Mouse = Look | Click = Swing Sword</div>
 <div id="healthbar"><div id="health"></div></div>
+<div id="deathMessage">YOU DIED</div>
 
 <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 
@@ -30,6 +36,7 @@ let yaw=0,pitch=0;
 let sword,swordSwing=0,isSwinging=false;
 let playerHealth=1;
 let spawnTimer=0;
+let isDead=false;
 
 init();
 animate();
@@ -91,7 +98,7 @@ function init(){
   });
 
   document.addEventListener("click",()=>{
-    if(!isSwinging){
+    if(!isSwinging && !isDead){
       isSwinging=true;
       swordSwing=0;
     }
@@ -106,10 +113,12 @@ function init(){
 
 function animate(){
   requestAnimationFrame(animate);
-  movePlayer();
-  moveMonsters();
-  updateSword();
-  updateSpawner();
+  if(!isDead){
+    movePlayer();
+    moveMonsters();
+    updateSword();
+    updateSpawner();
+  }
   renderer.render(scene,camera);
 }
 
@@ -128,19 +137,14 @@ function movePlayer(){
   move.addScaledVector(forward,dir.z*speed);
   move.addScaledVector(right,dir.x*speed);
 
-  // tentative new position
   const newPos=camera.position.clone().add(move);
   let blocked=false;
 
-  // check collision with walls
   for(const w of walls){
     const dx=newPos.x-w.position.x;
     const dz=newPos.z-w.position.z;
     const dist=Math.sqrt(dx*dx+dz*dz);
-    if(dist<3){ // roughly wall size/2 + player radius
-      blocked=true;
-      break;
-    }
+    if(dist<3){blocked=true;break;}
   }
 
   if(!blocked) camera.position.copy(newPos);
@@ -160,7 +164,7 @@ function spawnMonster(){
 
 function updateSpawner(){
   spawnTimer += 1;
-  if(spawnTimer > 120){ // every ~2 seconds
+  if(spawnTimer > 120){
     spawnTimer=0;
     spawnMonster();
   }
@@ -185,18 +189,14 @@ function moveMonsters(){
     const toPlayer=playerPos.clone().sub(m.position);
     const dist=toPlayer.length();
 
-    // attack if close
     if(dist<2){
-      playerHealth -= 1/16;
+      playerHealth -= 1/160; // gradual damage
       updateHealthBar();
-      if(playerHealth<=0){
-        alert("You Died! Refresh to restart.");
-        playerHealth=1;
-        updateHealthBar();
+      if(playerHealth<=0 && !isDead){
+        playerDies();
       }
     }
 
-    // sword hit
     if(dist<2 && isSwinging && swordSwing<Math.PI/3){
       m.health--;
       if(m.health>0){
@@ -207,11 +207,22 @@ function moveMonsters(){
       }
     }
 
-    // move toward player
     toPlayer.y=0;
     toPlayer.normalize();
     m.position.addScaledVector(toPlayer,0.05);
   }
+}
+
+function playerDies(){
+  isDead=true;
+  document.getElementById("deathMessage").style.display="block";
+  setTimeout(()=>{
+    playerHealth=1;
+    updateHealthBar();
+    document.getElementById("deathMessage").style.display="none";
+    isDead=false;
+    camera.position.set(0,2,8);
+  },2000);
 }
 
 function updateHealthBar(){
