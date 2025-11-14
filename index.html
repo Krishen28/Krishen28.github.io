@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Maze Sword Game 2.0</title>
+<title>Maze Sword Game 3.0</title>
 <style>
   html,body {margin:0;overflow:hidden;height:100%;background:#000;color:white;font-family:sans-serif;}
   #info{position:absolute;top:10px;width:100%;text-align:center;z-index:1;}
@@ -38,7 +38,8 @@ let playerHealth=1;
 let spawnTimer=0;
 let isDead=false;
 let monsterDifficulty=1;
-const WALL_SIZE = 8; // cell size
+
+const WALL_SIZE = 8;
 
 init();
 animate();
@@ -55,18 +56,15 @@ function init(){
   scene.add(sun);
   scene.add(new THREE.AmbientLight(0xffffff,0.5));
 
-  // floor
   const floor=new THREE.Mesh(
-    new THREE.PlaneGeometry(1000,1000),
+    new THREE.PlaneGeometry(2000,2000),
     new THREE.MeshPhongMaterial({color:0x446644})
   );
   floor.rotation.x=-Math.PI/2;
   scene.add(floor);
 
-  // Generate a BIG maze
-  generateMaze(20, 20, WALL_SIZE);
+  generateMaze(20,20,WALL_SIZE);
 
-  // sword
   const sGeo=new THREE.BoxGeometry(0.2,1.5,0.2);
   const sMat=new THREE.MeshPhongMaterial({color:0xccaa00});
   sword=new THREE.Mesh(sGeo,sMat);
@@ -166,38 +164,44 @@ function generateMaze(rows, cols, cellSize){
   }
 }
 
-// ---- PLAYER & GAME ----
-function movePlayer(){
-  const speed=0.3;
-  const dir=new THREE.Vector3();
-  if(keys["KeyW"]) dir.z-=1;
-  if(keys["KeyS"]) dir.z+=1;
-  if(keys["KeyA"]) dir.x-=1;
-  if(keys["KeyD"]) dir.x+=1;
-  dir.normalize();
+// ---- FIXED PLAYER MOVEMENT ----
+function movePlayer() {
+  const speed = 0.18;
+  const move = new THREE.Vector3();
 
-  const forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
-  const right=new THREE.Vector3(Math.sin(yaw+Math.PI/2),0,Math.cos(yaw+Math.PI/2));
-  const move=new THREE.Vector3();
-  move.addScaledVector(forward,dir.z*speed);
-  move.addScaledVector(right,dir.x*speed);
+  if (keys["KeyW"]) move.z -= 1;
+  if (keys["KeyS"]) move.z += 1;
+  if (keys["KeyA"]) move.x -= 1;
+  if (keys["KeyD"]) move.x += 1;
 
-  // collision detection
-  const newPos=camera.position.clone().add(move);
-  let blocked=false;
-  for(const w of walls){
-    const distX=Math.abs(newPos.x - w.position.x);
-    const distZ=Math.abs(newPos.z - w.position.z);
-    if(distX < WALL_SIZE/2 && distZ < 1.5){
-      blocked=true;break;
-    }
-    if(distZ < WALL_SIZE/2 && distX < 1.5){
-      blocked=true;break;
-    }
+  move.normalize();
+
+  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const right   = new THREE.Vector3(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
+
+  const velocity = new THREE.Vector3();
+  velocity.addScaledVector(forward, move.z * speed);
+  velocity.addScaledVector(right, move.x * speed);
+
+  const newPos = camera.position.clone().add(velocity);
+
+  const playerRadius = 1.0;
+  let collide = false;
+
+  for (const w of walls) {
+    const dx = Math.abs(newPos.x - w.position.x);
+    const dz = Math.abs(newPos.z - w.position.z);
+
+    if (dx < WALL_SIZE/2 + playerRadius && dz < 1.2) collide = true;
+    if (dz < WALL_SIZE/2 + playerRadius && dx < 1.2) collide = true;
+
+    if (collide) break;
   }
-  if(!blocked) camera.position.copy(newPos);
+
+  if (!collide) camera.position.copy(newPos);
 }
 
+// ---- MONSTERS ----
 function spawnMonster(){
   const mGeo=new THREE.BoxGeometry(2,2,2);
   const mMat=new THREE.MeshPhongMaterial({color:0xff0000});
@@ -213,7 +217,7 @@ function spawnMonster(){
 
 function updateSpawner(){
   spawnTimer++;
-  if(spawnTimer>150){ // ~2.5 sec
+  if(spawnTimer>150){
     spawnTimer=0;
     spawnMonster();
   }
@@ -223,10 +227,11 @@ function moveMonsters(){
   const playerPos=camera.position;
   for(let i=monsters.length-1;i>=0;i--){
     const m=monsters[i];
+
     if(m.isDead){
       m.fade -= 0.02;
-      m.material.transparent = true;
-      m.material.opacity = m.fade;
+      m.material.transparent=true;
+      m.material.opacity=m.fade;
       if(m.fade<=0){
         scene.remove(m);
         monsters.splice(i,1);
@@ -262,6 +267,7 @@ function moveMonsters(){
   }
 }
 
+// ---- PLAYER HEALTH ----
 function playerDies(){
   isDead=true;
   document.getElementById("deathMessage").style.display="block";
@@ -284,6 +290,7 @@ function updateHealthBar(){
   else healthDiv.style.background="#f00";
 }
 
+// ---- SWORD ----
 function updateSword(){
   if(isSwinging){
     swordSwing+=0.2;
@@ -295,6 +302,7 @@ function updateSword(){
   }
 }
 
+// ---- MAIN LOOP ----
 function animate(){
   requestAnimationFrame(animate);
   if(!isDead){
