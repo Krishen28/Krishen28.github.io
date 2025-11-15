@@ -3,8 +3,12 @@
 <head>
 <title>3D Maze Game</title>
 <style>
-    body { margin: 0; overflow:hidden; background:black; }
-    canvas { display:block; }
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+        font-family: sans-serif;
+    }
     #healthbar {
         position: fixed;
         top: 20px;
@@ -12,6 +16,7 @@
         width: 200px;
         height: 20px;
         border: 2px solid white;
+        z-index: 10;
     }
     #health {
         width: 100%;
@@ -21,89 +26,88 @@
 </style>
 </head>
 <body>
+
 <div id="healthbar"><div id="health"></div></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r150/three.min.js"></script>
+<!-- FIXED: Reliable Three.js CDN -->
+<script src="https://unpkg.com/three@0.150.0/build/three.min.js"></script>
 
 <script>
-// --------------------------------------------------
-// BASIC SCENE
-// --------------------------------------------------
+// ------------------------------------------------------------
+// BASIC SCENE SETUP
+// ------------------------------------------------------------
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({antialias:true});
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// --------------------------------------------------
-// PLAYER VARIABLES
-// --------------------------------------------------
+// ------------------------------------------------------------
+// PLAYER CONTROL VARIABLES
+// ------------------------------------------------------------
 let yaw = 0;
 let pitch = 0;
 let sensitivity = 0.0025;
 let speed = 0.09;
-let vel = new THREE.Vector3();
 let keys = { w:0, a:0, s:0, d:0 };
 
 camera.position.set(2, 1.7, 2);
 
-// --------------------------------------------------
-// MOVEMENT INPUT
-// --------------------------------------------------
-document.addEventListener("keydown", e=>{
+// ------------------------------------------------------------
+// KEYBOARD INPUT
+// ------------------------------------------------------------
+document.addEventListener("keydown", (e)=>{
     if(e.key=="w") keys.w = 1;
     if(e.key=="a") keys.a = 1;
     if(e.key=="s") keys.s = 1;
     if(e.key=="d") keys.d = 1;
 });
-document.addEventListener("keyup", e=>{
+document.addEventListener("keyup", (e)=>{
     if(e.key=="w") keys.w = 0;
     if(e.key=="a") keys.a = 0;
     if(e.key=="s") keys.s = 0;
     if(e.key=="d") keys.d = 0;
 });
 
-// --------------------------------------------------
-// MOUSE LOOK (Roblox-like)
-// --------------------------------------------------
-document.body.addEventListener("click", ()=>{ 
-    document.body.requestPointerLock(); 
+// ------------------------------------------------------------
+// MOUSE LOOK
+// ------------------------------------------------------------
+document.body.addEventListener("click", ()=>{
+    document.body.requestPointerLock();
 });
-
-document.addEventListener("mousemove", e=>{
+document.addEventListener("mousemove", (e)=>{
     if (document.pointerLockElement === document.body){
-        yaw -= e.movementX * sensitivity;
+        yaw   -= e.movementX * sensitivity;
         pitch -= e.movementY * sensitivity;
         pitch = Math.max(-1.4, Math.min(1.4, pitch));
     }
 });
 
-// --------------------------------------------------
-// TWO-FINGER TRACKPAD SWIPE ROTATION
-// --------------------------------------------------
-document.addEventListener("wheel", e=>{
+// ------------------------------------------------------------
+// TRACKPAD SWIPE LOOK
+// ------------------------------------------------------------
+document.addEventListener("wheel", (e)=>{
     e.preventDefault();
-    yaw -= e.deltaX * 0.002;
+    yaw   -= e.deltaX * 0.002;
     pitch -= e.deltaY * 0.002;
     pitch = Math.max(-1.4, Math.min(1.4, pitch));
-}, {passive:false});
+}, { passive:false });
 
-// --------------------------------------------------
+// ------------------------------------------------------------
 // MAZE GENERATION
-// --------------------------------------------------
+// ------------------------------------------------------------
 const wallGeo = new THREE.BoxGeometry(1,2,1);
-const wallMat = new THREE.MeshStandardMaterial({color:0x444444});
-
+const wallMat = new THREE.MeshStandardMaterial({ color:0x444444 });
 let walls = [];
+
 function addWall(x,z){
     let w = new THREE.Mesh(wallGeo, wallMat);
     w.position.set(x,1,z);
-    w.castShadow = true;
     walls.push(w);
     scene.add(w);
 }
 
-// A simple big maze layout (1 = wall)
+// Maze layout (1 = wall)
 let maze = [
  "1111111111111",
  "1000000010001",
@@ -118,28 +122,28 @@ let maze = [
 
 for (let z=0; z<maze.length; z++){
     for (let x=0; x<maze[z].length; x++){
-        if (maze[z][x] == "1") addWall(x, z);
+        if (maze[z][x] === "1") addWall(x, z);
     }
 }
 
-// floor
+// Floor
 const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(200,200),
-    new THREE.MeshStandardMaterial({color:0x222222})
+    new THREE.MeshStandardMaterial({ color:0x222222 })
 );
 floor.rotation.x = -Math.PI/2;
 scene.add(floor);
 
-// --------------------------------------------------
+// ------------------------------------------------------------
 // LIGHTING
-// --------------------------------------------------
+// ------------------------------------------------------------
 const light = new THREE.DirectionalLight(0xffffff,1.2);
 light.position.set(5,10,5);
 scene.add(light);
 
-// --------------------------------------------------
+// ------------------------------------------------------------
 // COLLISION CHECK
-// --------------------------------------------------
+// ------------------------------------------------------------
 function willCollide(nx,nz){
     for (let w of walls){
         if (Math.abs(nx - w.position.x) < 0.55 &&
@@ -150,41 +154,41 @@ function willCollide(nx,nz){
     return false;
 }
 
-// --------------------------------------------------
-// REAL SWORD (looks like a sword)
-// --------------------------------------------------
+// ------------------------------------------------------------
+// SWORD MODEL
+// ------------------------------------------------------------
 const sword = new THREE.Group();
 
 // handle
 let handle = new THREE.Mesh(
     new THREE.CylinderGeometry(0.08,0.08,0.5,12),
-    new THREE.MeshStandardMaterial({color:0x222222})
+    new THREE.MeshStandardMaterial({ color:0x222222 })
 );
-handle.position.set(0,-0.25,0);
+handle.position.y = -0.25;
 sword.add(handle);
 
 // guard
 let guard = new THREE.Mesh(
     new THREE.BoxGeometry(0.4,0.1,0.1),
-    new THREE.MeshStandardMaterial({color:0x555555})
+    new THREE.MeshStandardMaterial({ color:0x555555 })
 );
-guard.position.set(0,0,0);
 sword.add(guard);
 
 // blade
 let blade = new THREE.Mesh(
     new THREE.BoxGeometry(0.12,1.5,0.05),
-    new THREE.MeshStandardMaterial({color:0xcccccc, metalness:0.9, roughness:0.2})
+    new THREE.MeshStandardMaterial({ color:0xcccccc, metalness:0.9, roughness:0.2 })
 );
-blade.position.set(0,0.8,0);
+blade.position.y = 0.8;
 sword.add(blade);
 
+// Position sword in view
 sword.position.set(0.5,-0.3,-0.7);
 sword.rotation.set(0.2,0.7,0);
 camera.add(sword);
 scene.add(camera);
 
-// sword swing animation
+// Swing animation
 let swinging = false;
 let swingProgress = 0;
 document.addEventListener("mousedown", ()=>{
@@ -194,35 +198,34 @@ document.addEventListener("mousedown", ()=>{
     }
 });
 
-// --------------------------------------------------
+// ------------------------------------------------------------
 // MONSTERS
-// --------------------------------------------------
+// ------------------------------------------------------------
 const monsterGeo = new THREE.BoxGeometry(1,1,1);
-const monsterMat = new THREE.MeshStandardMaterial({color:0x880000});
+const monsterMat = new THREE.MeshStandardMaterial({ color:0xaa0000 });
+
 let monsters = [];
 
 function spawnMonster(){
     let m = new THREE.Mesh(monsterGeo, monsterMat);
     m.position.set(12,1,12);
-    m.hp = 1;
     monsters.push(m);
     scene.add(m);
 }
-
 setInterval(spawnMonster, 2000);
 
-// --------------------------------------------------
-// HEALTH
-// --------------------------------------------------
+// ------------------------------------------------------------
+// HEALTH SYSTEM
+// ------------------------------------------------------------
 let health = 1;
 
-// --------------------------------------------------
+// ------------------------------------------------------------
 // MAIN LOOP
-// --------------------------------------------------
+// ------------------------------------------------------------
 function animate(){
     requestAnimationFrame(animate);
 
-    // UPDATE CAMERA ROTATION
+    // CAMERA ROTATION
     camera.rotation.set(pitch, yaw, 0);
 
     // MOVEMENT
@@ -232,10 +235,10 @@ function animate(){
     let nx = camera.position.x;
     let nz = camera.position.z;
 
-    if (keys.w) { nx += forward.x*speed; nz += forward.z*speed; }
-    if (keys.s) { nx -= forward.x*speed; nz -= forward.z*speed; }
-    if (keys.a) { nx -= right.x*speed;   nz -= right.z*speed; }
-    if (keys.d) { nx += right.x*speed;   nz += right.z*speed; }
+    if (keys.w){ nx += forward.x*speed; nz += forward.z*speed; }
+    if (keys.s){ nx -= forward.x*speed; nz -= forward.z*speed; }
+    if (keys.a){ nx -= right.x*speed;   nz -= right.z*speed; }
+    if (keys.d){ nx += right.x*speed;   nz += right.z*speed; }
 
     if (!willCollide(nx, camera.position.z)) camera.position.x = nx;
     if (!willCollide(camera.position.x, nz)) camera.position.z = nz;
@@ -253,7 +256,7 @@ function animate(){
         }
     }
 
-    // MONSTER MOVEMENT + ATTACK
+    // MONSTER MOVEMENT + DAMAGE
     for (let m of monsters){
         let dir = new THREE.Vector3(
             camera.position.x - m.position.x,
@@ -263,13 +266,11 @@ function animate(){
         dir.normalize();
         m.position.addScaledVector(dir, 0.02);
 
-        // hit player?
         if (m.position.distanceTo(camera.position) < 0.8){
             health -= 0.002;
             document.getElementById("health").style.width = (health*100)+"%";
         }
 
-        // sword hits monster?
         if (swinging){
             let swordPos = new THREE.Vector3();
             sword.localToWorld(swordPos);
@@ -286,5 +287,6 @@ function animate(){
 
 animate();
 </script>
+
 </body>
 </html>
