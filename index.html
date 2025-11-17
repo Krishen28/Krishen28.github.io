@@ -1,424 +1,264 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Advanced Maze — Full Game</title>
-<style>
-  html,body { margin:0; height:100%; background:#000; color:#fff; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; overflow:hidden; }
-  #hud { position: absolute; left: 12px; top: 12px; z-index: 40; }
-  #healthWrap { width: 320px; height: 22px; background:#333; border:2px solid #222; border-radius:6px; overflow:hidden; }
-  #healthBar { width:100%; height:100%; background: linear-gradient(90deg,#0f0,#6f0); transition: width 150ms linear;}
-  #info { margin-top:8px; font-size:13px; opacity:0.9; }
-  #death { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:56px; color:#ff6666; display:none; text-shadow:0 4px 18px #000; z-index:50; }
-  #startBtn { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); padding:14px 22px; background:#fff; color:#000; border-radius:10px; font-size:18px; z-index:60; cursor:pointer; }
-</style>
-</head>
-<body>
-<div id="hud">
-  <div id="healthWrap"><div id="healthBar"></div></div>
-  <div id="info">W A S D = Move &nbsp; • &nbsp; Mouse = Look &nbsp; • &nbsp; Click = Swing</div>
-</div>
-<div id="death">YOU DIED</div>
-<button id="startBtn">Click to Start (Pointer Lock)</button>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Maze Game</title>
 
-<!-- Reliable Three.js -->
-<script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+    <!-- RELIABLE THREE.JS (WORKS ON GITHUB PAGES) -->
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+
+    <!-- Smooth camera controller (OrbitControls, no pointer lock) -->
+    <script src="https://unpkg.com/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #healthbar {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 300px;
+            height: 25px;
+            background: rgb(60, 0, 0);
+            border: 3px solid #900;
+            border-radius: 8px;
+        }
+
+        #healthbar-inner {
+            height: 100%;
+            background: red;
+            width: 100%;
+            transition: width 0.2s;
+            border-radius: 5px;
+        }
+
+        #startBtn {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 50px;
+            background: white;
+            border-radius: 10px;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 5;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="startBtn">Click to Start</div>
+<div id="healthbar"><div id="healthbar-inner"></div></div>
 
 <script>
-/* -----------------------------
-  Advanced Maze — Full Game
-   - Three.js must be loaded first (done above)
-------------------------------*/
+/* ---------------------------------------------
+   BASIC 3D SETUP
+---------------------------------------------- */
 
-(() => {
-  // CONFIG
-  const MAZE_ROWS = 20;       // bigger maze
-  const MAZE_COLS = 20;
-  const CELL = 8;             // cell size
-  const WALL_HEIGHT = 4;
-  const PLAYER_RADIUS = 0.9;
-  const PLAYER_HEIGHT = 1.8;
-  const WALK_SPEED = 0.18;
-  const MONSTER_SPEED = 0.05;
-  const SPAWN_INTERVAL_MS = 1800;
-  const DIFFICULTY_INCREASE_INTERVAL_MS = 30000; // +1 health every 30s
+let scene = new THREE.Scene();
+scene.background = new THREE.Color(0x202020);
 
-  // Scene, camera, renderer
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
+let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+camera.position.set(0, 5, 10);
 
-  const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 2000);
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(innerWidth, innerHeight);
-  document.body.appendChild(renderer.domElement);
+let renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
 
-  // Lighting
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-  dirLight.position.set(50, 120, 50);
-  scene.add(dirLight);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+/* ---------------------------------------------
+   LIGHTING (better graphics)
+---------------------------------------------- */
+let sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(20, 50, 20);
+scene.add(sun);
 
-  // Floor (scenic)
-  const floorMat = new THREE.MeshPhongMaterial({ color: 0x5a8a5a });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), floorMat);
-  floor.rotation.x = -Math.PI/2;
-  scene.add(floor);
+let ambient = new THREE.AmbientLight(0x777777);
+scene.add(ambient);
 
-  // HUD elements
-  const healthBarEl = document.getElementById('healthBar');
-  const deathEl = document.getElementById('death');
-  const startBtn = document.getElementById('startBtn');
+/* ---------------------------------------------
+   CAMERA CONTROLS (NO pointer lock)
+---------------------------------------------- */
+let controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enablePan = false;
+controls.enableZoom = false;
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.target.set(0, 3, 0);
 
-  // State
-  let yaw = 0, pitch = 0;
-  let keys = {};
-  let isSwinging = false, swingPhase = 0;
-  let monsters = [];
-  let walls = [];
-  let spawnTimer = 0;
-  let lastDifficultyTick = performance.now();
-  let baseMonsterHealth = 1; // increases over time
-  let health = 16;
-  const maxHealth = 16;
-  let isDead = false;
+/* ---------------------------------------------
+   PLAYER
+---------------------------------------------- */
+let player = {
+    x: 0,
+    y: 2,
+    z: 0,
+    speed: 0.15,
+    hp: 16
+};
 
-  // Maze generation (simple random sparse blocks but with guaranteed start area free)
-  function buildMaze(rows, cols, cellSize) {
-    const startClear = 1; // keep start area clear
-    const startCellX = 0, startCellZ = 0;
+/* ---------------------------------------------
+   CONTROLS
+---------------------------------------------- */
+let keys = {};
+document.addEventListener("keydown", (e)=>keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", (e)=>keys[e.key.toLowerCase()] = false);
 
-    const wallGeo = new THREE.BoxGeometry(cellSize, WALL_HEIGHT, cellSize);
-    const wallMat = new THREE.MeshPhongMaterial({ color: 0x777777 });
+/* ---------------------------------------------
+   MAZE GENERATION (BETTER LOOKING)
+---------------------------------------------- */
+let walls = [];
+let mazeSize = 40;
+let wallGeo = new THREE.BoxGeometry(5, 8, 5);
+let wallMat = new THREE.MeshStandardMaterial({ color: 0x4444ff, roughness: 0.5 });
 
-    for (let z = 0; z < rows; z++) {
-      for (let x = 0; x < cols; x++) {
-        // leave a clear area around the start cell to avoid spawn-in-wall
-        if (Math.abs(z - startCellZ) <= startClear && Math.abs(x - startCellX) <= startClear) continue;
-        // create blocks sparsely to resemble scenery maze
-        if (Math.random() < 0.34) {
-          const w = new THREE.Mesh(wallGeo, wallMat.clone());
-          const posX = x * cellSize - (cols * cellSize) / 2 + cellSize / 2;
-          const posZ = z * cellSize - (rows * cellSize) / 2 + cellSize / 2;
-          w.position.set(posX, WALL_HEIGHT/2, posZ);
-          scene.add(w);
-          walls.push(w);
+function createMaze() {
+    for (let x = -mazeSize; x <= mazeSize; x += 5) {
+        for (let z = -mazeSize; z <= mazeSize; z += 5) {
+            if (Math.random() < 0.25) {
+                let wall = new THREE.Mesh(wallGeo, wallMat);
+                wall.position.set(x, 4, z);
+                scene.add(wall);
+                walls.push(wall);
+            }
         }
-      }
     }
-  }
+}
+createMaze();
 
-  buildMaze(MAZE_ROWS, MAZE_COLS, CELL);
+/* ---------------------------------------------
+   SWORD (better graphics)
+---------------------------------------------- */
+let swordGeo = new THREE.BoxGeometry(0.5, 5, 1);
+let swordMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
 
-  // Player initial safe position (center of start cell)
-  const startX = -(MAZE_COLS * CELL)/2 + CELL/2;
-  const startZ = -(MAZE_ROWS * CELL)/2 + CELL/2 + CELL;
-  camera.position.set(startX, PLAYER_HEIGHT, startZ);
+let sword = new THREE.Mesh(swordGeo, swordMat);
+sword.position.set(1.5, -1, -3);
+camera.add(sword);
+scene.add(camera);
 
-  // Create an improved sword model (group)
-  function createSword() {
-    const g = new THREE.Group();
+/* ---------------------------------------------
+   ENEMIES
+---------------------------------------------- */
+let enemies = [];
+function spawnEnemy() {
+    let geo = new THREE.SphereGeometry(1.2, 16, 16);
+    let mat = new THREE.MeshStandardMaterial({ color: 0xff4444 });
 
-    // blade
-    const bladeGeo = new THREE.BoxGeometry(0.12, 0.12, 1.6);
-    const bladeMat = new THREE.MeshPhongMaterial({ color: 0xe8e8e8, shininess: 60 });
-    const blade = new THREE.Mesh(bladeGeo, bladeMat);
-    blade.position.set(0, -0.1, -0.9);
-    g.add(blade);
+    let enemy = new THREE.Mesh(geo, mat);
+    enemy.position.set(
+        (Math.random() - 0.5) * mazeSize * 2,
+        1.2,
+        (Math.random() - 0.5) * mazeSize * 2
+    );
 
-    // guard
-    const guardGeo = new THREE.BoxGeometry(0.5, 0.08, 0.12);
-    const guard = new THREE.Mesh(guardGeo, new THREE.MeshPhongMaterial({ color: 0x333333 }));
-    guard.position.set(0, -0.05, -0.3);
-    g.add(guard);
+    enemy.hp = 1 + Math.floor(Math.random()*3); // 1–3 hits
+    enemies.push(enemy);
+    scene.add(enemy);
+}
 
-    // grip
-    const gripGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.5, 10);
-    const grip = new THREE.Mesh(gripGeo, new THREE.MeshPhongMaterial({ color: 0x3b2310 }));
-    grip.rotation.x = Math.PI / 2;
-    grip.position.set(0, 0.15, 0.15);
-    g.add(grip);
+/* Spawn enemies every 3 seconds */
+setInterval(spawnEnemy, 3000);
 
-    // pommel
-    const pom = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshPhongMaterial({ color: 0x222222 }));
-    pom.position.set(0, 0.45, 0.15);
-    g.add(pom);
+/* ---------------------------------------------
+   MOVEMENT & COLLISION
+---------------------------------------------- */
+function movePlayer() {
+    let forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
 
-    // scale for visibility
-    g.scale.set(1,1,1);
-    return g;
-  }
+    let right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0,1,0)).multiplyScalar(-1);
 
-  const sword = createSword();
-  // attach sword to camera (first-person)
-  sword.position.set(0.5, -0.5, -1.2);
-  camera.add(sword);
-  scene.add(camera);
+    let oldPos = camera.position.clone();
 
-  // Input: keyboard
-  window.addEventListener('keydown', (e) => { keys[e.code] = true; });
-  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+    if (keys["w"]) camera.position.addScaledVector(forward, player.speed);
+    if (keys["s"]) camera.position.addScaledVector(forward, -player.speed);
+    if (keys["a"]) camera.position.addScaledVector(right, -player.speed);
+    if (keys["d"]) camera.position.addScaledVector(right, player.speed);
 
-  // Pointer-lock start
-  startBtn.addEventListener('click', () => {
-    startBtn.style.display = 'none';
-    document.body.requestPointerLock();
-  });
-
-  // Mouse look (pointer lock)
-  document.addEventListener('mousemove', (e) => {
-    if (document.pointerLockElement === document.body) {
-      yaw -= e.movementX * 0.0025;
-      pitch -= e.movementY * 0.0025;
-      pitch = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, pitch));
-      camera.rotation.set(pitch, yaw, 0);
-    }
-  });
-
-  // Two-finger trackpad rotation (block page scrolling)
-  document.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    yaw -= e.deltaX * 0.002;
-    pitch -= e.deltaY * 0.002;
-    pitch = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, pitch));
-    camera.rotation.set(pitch, yaw, 0);
-  }, { passive: false });
-
-  // Pointer for swinging
-  document.addEventListener('mousedown', (e) => {
-    if (!isSwinging && !isDead) {
-      isSwinging = true;
-      swingPhase = 0;
-    }
-  });
-
-  // Utility: axis-aligned collision + sliding (works well for block walls)
-  function checkCollisionAt(pos) {
-    for (const w of walls) {
-      const dx = Math.abs(pos.x - w.position.x);
-      const dz = Math.abs(pos.z - w.position.z);
-      // treat walls as square footprint of CELL (slightly smaller for forgiveness)
-      const threshold = CELL/2 - 0.5;
-      if (dx < threshold && dz < threshold) return true;
-    }
-    return false;
-  }
-
-  // Monster spawn function (spawn at far end)
-  function spawnMonster() {
-    const geo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
-    const mat = new THREE.MeshPhongMaterial({ color: 0xff4444 });
-    const m = new THREE.Mesh(geo, mat);
-
-    // position near opposite end of maze
-    const spawnZ = (MAZE_ROWS * CELL)/2 - CELL;
-    const spawnX = -(MAZE_COLS * CELL)/2 + CELL/2 + (Math.random() * (CELL * 2) - CELL);
-    m.position.set(spawnX, 0.8, spawnZ + (Math.random() * 6 - 3));
-    m.health = Math.max(1, baseMonsterHealth);
-    m.maxHealth = m.health;
-    m.isDead = false;
-    m.fade = 1;
-    m._lastHitTick = -1;
-    scene.add(m);
-    monsters.push(m);
-  }
-
-  // spawn loop
-  const spawnInterval = setInterval(() => {
-    if (!isDead) spawnMonster();
-  }, SPAWN_INTERVAL_MS);
-
-  // Difficulty increase timer
-  setInterval(() => {
-    baseMonsterHealth++;
-  }, DIFFICULTY_INCREASE_INTERVAL_MS);
-
-  // Health UI update
-  function updateHealthUI() {
-    const pct = Math.max(0, Math.min(1, health / maxHealth));
-    healthBarEl.style.width = (pct * 100) + '%';
-    if (pct > 0.6) healthBarEl.style.background = 'linear-gradient(90deg,#0f0,#6f0)';
-    else if (pct > 0.3) healthBarEl.style.background = 'linear-gradient(90deg,#ff0,#ffa500)';
-    else healthBarEl.style.background = 'linear-gradient(90deg,#f00,#800000)';
-  }
-  updateHealthUI();
-
-  // Player damage / death handling
-  function damagePlayer(amount) {
-    if (isDead) return;
-    health = Math.max(0, health - amount);
-    updateHealthUI();
-    if (health <= 0 && !isDead) {
-      isDead = true;
-      deathEl.style.display = 'block';
-      // short respawn after 1.8s
-      setTimeout(() => {
-        // respawn: reset health and difficulty and clear monsters
-        health = maxHealth;
-        baseMonsterHealth = 1;
-        updateHealthUI();
-        deathEl.style.display = 'none';
-        // teleport player to start
-        camera.position.set(startX, PLAYER_HEIGHT, startZ);
-        // remove monsters
-        for (const m of monsters) scene.remove(m);
-        monsters = [];
-        isDead = false;
-      }, 1800);
-    }
-  }
-
-  // Sword hit helper: check if monster is inside cone/box in front (single hit per swing per tick)
-  function attemptSwordHit(m, swingTick) {
-    // compute vector from camera to monster
-    const toMonster = new THREE.Vector3().subVectors(m.position, camera.position);
-    toMonster.y = 0;
-    const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    const forwardDist = toMonster.dot(forward);
-    const lateral = new THREE.Vector3().subVectors(toMonster, forward.clone().multiplyScalar(forwardDist)).length();
-
-    // require monster to be in front (positive forwardDist) and reasonably close
-    if (forwardDist > 0.6 && forwardDist < 3.0 && lateral < 1.2) {
-      // ensure we only reduce health once per small swing tick
-      if (m._lastHitTick !== swingTick) {
-        m._lastHitTick = swingTick;
-        m.health--;
-        // color feedback
-        const ratio = Math.max(0.05, m.health / m.maxHealth);
-        m.material.color.setHSL(0, 1, ratio * 0.6 + 0.2);
-        if (m.health <= 0) {
-          m.isDead = true;
-          // make it dark and start fading
-          m.material.color.setHex(0x222222);
+    // Collision check
+    for (let w of walls) {
+        if (camera.position.distanceTo(w.position) < 3) {
+            camera.position.copy(oldPos);
         }
-      }
     }
-  }
+}
 
-  // Animation loop
-  function animate() {
+/* ---------------------------------------------
+   ENEMY LOGIC
+---------------------------------------------- */
+function updateEnemies() {
+    enemies.forEach((e, i) => {
+
+        // Move toward player
+        let dir = camera.position.clone().sub(e.position).normalize();
+        e.position.addScaledVector(dir, 0.05);
+
+        // Damage player
+        if (e.position.distanceTo(camera.position) < 2.0) {
+            player.hp -= 1;
+            updateHealth();
+        }
+
+        // Sword attack
+        if (swinging && e.position.distanceTo(camera.position) < 4.0) {
+            e.hp--;
+            if (e.hp <= 0) {
+                scene.remove(e);
+                enemies.splice(i, 1);
+            }
+        }
+    });
+}
+
+function updateHealth() {
+    player.hp = Math.max(0, player.hp);
+    document.getElementById("healthbar-inner").style.width = (player.hp / 16 * 100) + "%";
+}
+
+/* ---------------------------------------------
+   SWORD SWING
+---------------------------------------------- */
+let swinging = false;
+document.addEventListener("mousedown", () => {
+    if (!swinging) {
+        swinging = true;
+        sword.rotation.x = -1.2;
+        setTimeout(()=>{
+            sword.rotation.x = 0;
+            swinging = false;
+        }, 200);
+    }
+});
+
+/* ---------------------------------------------
+   START BUTTON
+---------------------------------------------- */
+document.getElementById("startBtn").onclick = () => {
+    document.getElementById("startBtn").style.display = "none";
+};
+
+/* ---------------------------------------------
+   GAME LOOP
+---------------------------------------------- */
+function animate() {
     requestAnimationFrame(animate);
-
-    // handle movement
-    if (!isDead) {
-      let move = new THREE.Vector3();
-      if (keys['KeyW']) move.z -= 1;
-      if (keys['KeyS']) move.z += 1;
-      if (keys['KeyA']) move.x -= 1;
-      if (keys['KeyD']) move.x += 1;
-      if (move.lengthSq() > 0) move.normalize();
-
-      // build world-space velocity relative to camera yaw
-      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-      const right = new THREE.Vector3(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
-      const velocity = new THREE.Vector3();
-      velocity.addScaledVector(forward, move.z * WALK_SPEED);
-      velocity.addScaledVector(right, move.x * WALK_SPEED);
-
-      // proposed new pos
-      const newPos = camera.position.clone().add(velocity);
-
-      // collision test, with axis-separated sliding
-      if (!checkCollisionAt(newPos)) {
-        camera.position.copy(newPos);
-      } else {
-        // try X only
-        const tryX = camera.position.clone().add(new THREE.Vector3(velocity.x, 0, 0));
-        if (!checkCollisionAt(tryX)) { camera.position.copy(tryX); }
-        else {
-          // try Z only
-          const tryZ = camera.position.clone().add(new THREE.Vector3(0, 0, velocity.z));
-          if (!checkCollisionAt(tryZ)) camera.position.copy(tryZ);
-        }
-      }
-    }
-
-    // sword idle sway
-    sword.rotation.y = Math.sin(performance.now() * 0.002) * 0.06;
-    sword.position.y = -0.5 + Math.sin(performance.now() * 0.004) * 0.02;
-
-    // sword swing animation + attack timing
-    if (isSwinging) {
-      swingPhase += 0.22;
-      sword.rotation.x = Math.sin(swingPhase) * 1.05;
-      // compute a small integer tick for this swing so hits are gated
-      const swingTick = Math.floor(swingPhase * 10);
-      // try hitting monsters while we're in forward arc
-      if (swingPhase > 0.6 && swingPhase < 2.1) {
-        for (const m of monsters) {
-          if (!m.isDead) attemptSwordHit(m, swingTick);
-        }
-      }
-      if (swingPhase > Math.PI) {
-        isSwinging = false;
-        swingPhase = 0;
-        sword.rotation.x = 0;
-      }
-    }
-
-    // monster behavior
-    for (let i = monsters.length - 1; i >= 0; i--) {
-      const m = monsters[i];
-      if (m.isDead) {
-        // fade out
-        m.fade -= 0.02;
-        m.material.transparent = true;
-        m.material.opacity = m.fade;
-        if (m.fade <= 0) {
-          scene.remove(m);
-          monsters.splice(i, 1);
-        }
-        continue;
-      }
-
-      // move toward player
-      const toPlayer = new THREE.Vector3().subVectors(camera.position, m.position);
-      toPlayer.y = 0;
-      const dist = toPlayer.length();
-      if (dist > 0.001) toPlayer.normalize();
-      m.position.addScaledVector(toPlayer, MONSTER_SPEED);
-
-      // damage when close
-      if (dist < 1.6) {
-        // smaller continuous damage per frame; tuned so 16 HP means some time to die
-        damagePlayer(1 / 16); // 1/16 of full health per contact slice
-      }
-    }
-
-    // render
+    movePlayer();
+    updateEnemies();
+    controls.update();
     renderer.render(scene, camera);
-  }
+}
+animate();
 
-  // wrapper for collision to match earlier naming
-  function checkCollisionAt(pos) {
-    // pos is THREE.Vector3
-    for (const w of walls) {
-      const dx = Math.abs(pos.x - w.position.x);
-      const dz = Math.abs(pos.z - w.position.z);
-      if (dx < CELL/2 - 0.35 && dz < CELL/2 - 0.35) return true;
-    }
-    return false;
-  }
-
-  // start animation
-  animate();
-
-  // spawn timer using setInterval for consistency (also prevents drift)
-  // spawn monsters from far end until game ends
-  // (function created earlier handled setInterval spawn)
-  // but ensure first wave appears quickly:
-  setTimeout(spawnMonster, 600);
-
-  // utility exposure for debugging (optional)
-  window.__GAME = {
-    scene, camera, renderer,
-    monsters, walls,
-    spawnMonster,
-    damagePlayer,
-    checkCollisionAt
-  };
-
-})(); // end IIFE
 </script>
 </body>
 </html>
