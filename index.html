@@ -39,11 +39,7 @@
 
 <script>
 /* =========================================================
-   Full Single-File Game
-   - Procedural Maze (recursive backtracker)
-   - Player/Monster/Sword/Effects classes
-   - Pointer-lock FPS controls
-   - Collision, sounds (WebAudio), particles
+   Full Single-File Game (fixed: yaw/pitch declared)
    ========================================================= */
 
 (() => {
@@ -64,6 +60,10 @@
   const hudMonsters = document.getElementById('monsters');
   const hudFPS = document.getElementById('fps');
   const messageBox = document.getElementById('message');
+
+  // IMPORTANT FIX: declare yaw and pitch here so all code can access them.
+  // The ReferenceError you saw was because these were referenced before being declared.
+  let yaw = 0, pitch = 0;
 
   // Three essentials
   const scene = new THREE.Scene();
@@ -121,15 +121,13 @@
   // Variables to store world objects
   let walls = [];    // meshes for walls (for collision)
   let monsters = []; // Monster instances
+  const particles = []; // particle containers (used by restart and updateParticles)
 
   // Helper: Vector2 equality tolerance
   function vec2Equal(a,b){ return Math.abs(a.x-b.x)<0.001 && Math.abs(a.y-b.y)<0.001; }
 
   /* ----------------------
      Maze generation (grid of cells, recursive backtracker)
-     Maze representation:
-       grid: odd sizes; cells at odd indices; walls at even indexes
-     We'll create wall meshes for '#' cells
      ---------------------- */
   class Maze {
     constructor(w, h) {
@@ -144,10 +142,8 @@
       }
     }
 
-    // carve passage cells
     generate() {
       const w = this.w, h = this.h;
-      // Start at random odd cell
       const stack = [];
       const startX = 1, startZ = 1;
       this.grid[startZ][startX] = '.';
@@ -171,7 +167,6 @@
           stack.pop();
         } else {
           const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
-          // carve between
           const betweenX = cur.x + pick.dir.x/2;
           const betweenZ = cur.z + pick.dir.z/2;
           this.grid[betweenZ][betweenX] = '.';
@@ -180,21 +175,17 @@
         }
       }
 
-      // ensure entrance/exit
-      this.grid[1][0] = '.'; // left opening
-      this.grid[this.h-2][this.w-1] = '.'; // right opening
+      this.grid[1][0] = '.';
+      this.grid[this.h-2][this.w-1] = '.';
     }
 
-    // build three.js wall meshes from grid
     buildMeshes() {
-      // clear old walls
       walls.forEach(w => scene.remove(w.mesh));
       walls = [];
 
       const wallGeom = new THREE.BoxGeometry(CELL, CELL*1.1, CELL);
       const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, metalness: 0.02, roughness: 0.9 });
 
-      // offset so maze centered around origin
       const offsetX = - (this.w * CELL)/2 + CELL/2;
       const offsetZ = - (this.h * CELL)/2 + CELL/2;
 
@@ -241,7 +232,6 @@
       if(this.shake.duration > 0){
         this.shake.duration -= dt;
         const s = this.shake.intensity * (this.shake.duration / 0.25);
-        // small random offset
         camera.position.x += (Math.random()*2-1) * s;
         camera.position.y += (Math.random()*2-1) * s * 0.5;
         camera.position.z += (Math.random()*2-1) * s;
@@ -256,11 +246,8 @@
     }
 
     update(dt, input) {
-      // rotation already applied via pointer controls; yaw/pitch stored in globals
-      // movement based on direction and yaw
       if(!this.canMove) return;
-      const vx = 0, vy = 0;
-      // compute direction vector in world coords
+      // compute direction vector in world coords using global yaw
       const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
       const right = new THREE.Vector3(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
       let move = new THREE.Vector3();
@@ -283,7 +270,6 @@
         }
       }
 
-      // swing timer
       if(this.swingTimer > 0) this.swingTimer = Math.max(0, this.swingTimer - dt);
       this.applyShake(dt);
     }
@@ -306,7 +292,6 @@
   class Sword {
     constructor(player) {
       this.player = player;
-      // simple sword model (blade + handle)
       const bladeGeo = new THREE.BoxGeometry(0.08, 1.0, 0.12);
       const bladeMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness:0.8, roughness:0.2 });
       this.blade = new THREE.Mesh(bladeGeo, bladeMat);
@@ -323,11 +308,10 @@
       this.group.add(this.blade);
       this.group.add(this.handle);
 
-      // attach to camera
       camera.add(this.group);
-      this.group.position.set(0,0,0); // camera-local
+      this.group.position.set(0,0,0);
       this.swinging = false;
-      this.timer = 0; // swing progress
+      this.timer = 0;
       this.cooldown = 0;
       this.trailPositions = [];
       this.trailGeo = new THREE.BufferGeometry();
@@ -336,47 +320,37 @@
       const trailMat = new THREE.LineBasicMaterial({ color:0xffd080, transparent:true, opacity:0.9 });
       this.trail = new THREE.Line(this.trailGeo, trailMat);
       scene.add(this.trail);
-      this.lastWorldPos = new THREE.Vector3();
+      this._didHit = false;
     }
 
     update(dt) {
-      // cooldown
       if(this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
 
-      // if swinging animate with sine for smooth arc
       if(this.swinging) {
-        this.timer += dt * 6; // speed of swing
-        const progress = this.timer; // 0..pi roughly
-        const angle = Math.sin(progress) * Math.PI * 0.7; // arc amplitude
-        // apply rotation to group (rotate around camera-local X axis)
+        this.timer += dt * 6;
+        const progress = this.timer;
+        const angle = Math.sin(progress) * Math.PI * 0.7;
         this.group.rotation.set(angle - 0.7, 0.0, 0.0);
 
-        // record trail
         const worldPos = new THREE.Vector3();
         this.blade.getWorldPosition(worldPos);
         this.trailPositions.unshift(worldPos.clone());
         if(this.trailPositions.length > TRAIL_LENGTH) this.trailPositions.pop();
         this.updateTrailGeometry();
 
-        // hit detection near peak
         if(progress > Math.PI * 0.28 && progress < Math.PI * 0.55 && !this._didHit) {
           this._didHit = true;
-          // test monsters in range
           this.tryHitMonsters(worldPos);
         }
 
         if(this.timer > Math.PI) {
-          // end swing
           this.swinging = false;
           this._didHit = false;
           this.timer = 0;
           this.cooldown = SWING_COOLDOWN;
-          // clear trail slowly
         }
       } else {
-        // idle slight bob to sword
         this.group.rotation.x = -0.3 + Math.sin(performance.now() * 0.002) * 0.02;
-        // fade trail
         if(this.trailPositions.length > 0) {
           this.trailPositions.shift();
           this.updateTrailGeometry();
@@ -395,7 +369,6 @@
 
     updateTrailGeometry(){
       const pts = this.trailGeo.attributes.position.array;
-      // fill with positions or zeros
       for(let i=0;i<TRAIL_LENGTH;i++){
         const p = this.trailPositions[i];
         const idx = i*3;
@@ -409,7 +382,6 @@
     }
 
     tryHitMonsters(worldPos) {
-      // check monsters within distance and near forward cone
       const hitRadius = 1.6;
       const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
       for(let i = monsters.length - 1; i >=0; i--){
@@ -418,20 +390,16 @@
         const toMonster = mpos.clone().sub(camera.position);
         const dist = toMonster.length();
         if(dist <= hitRadius) {
-          // check angle
           toMonster.y = 0;
           toMonster.normalize();
           const dot = forward.dot(toMonster);
           if(dot > 0.3) {
-            // hit
             mon.hit(1 + Math.floor(Math.random()*3));
             playHit();
             spawnHitParticles(mpos.x, mpos.y + 0.5, mpos.z);
-            // slight knockback
             const kb = toMonster.clone().multiplyScalar(-0.8);
             mon.applyKnockback(kb);
             if(mon.hp <= 0){
-              // remove monster
               scene.remove(mon.mesh);
               monsters.splice(i,1);
               hudMonsters.innerText = `Monsters: ${monsters.length}`;
@@ -444,8 +412,6 @@
 
   /* ----------------------
      Monster class
-     - simple steering toward player
-     - hp, bobbing animation, glow, hit method
      ---------------------- */
   class Monster {
     constructor(x,z) {
@@ -456,7 +422,6 @@
       this.mesh.position.set(x, 0.45, z);
       scene.add(this.mesh);
 
-      // Eye glow: small emissive sphere on front
       const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
       const eyeMat = new THREE.MeshBasicMaterial({ color:0xff9933 });
       this.eye = new THREE.Mesh(eyeGeo, eyeMat);
@@ -470,21 +435,16 @@
     }
 
     update(dt) {
-      // bobbing animation
       this.mesh.position.y = 0.45 + Math.sin(performance.now() * 0.002 + (this.mesh.position.x + this.mesh.position.z)) * 0.06;
-
-      // glow pulse
       const glow = 0.5 + Math.abs(Math.sin(performance.now()*0.003 + this.mesh.position.x)) * 0.6;
       this.eye.material.color.setScalar(1.0);
       this.eye.material.needsUpdate = true;
       this.eye.scale.set(1,1,1).multiplyScalar(1 + (glow-0.5)*0.15);
 
-      // simple movement toward player with collision avoidance
       const toPlayer = camera.position.clone().sub(this.mesh.position);
       toPlayer.y = 0;
       const dist = toPlayer.length();
       if(this.knockTimer > 0){
-        // apply knockback
         this.mesh.position.addScaledVector(this.knockback, dt);
         this.knockTimer -= dt;
         if(this.knockTimer <= 0) this.knockback.set(0,0,0);
@@ -493,14 +453,11 @@
       if(dist > 1.6) {
         toPlayer.normalize();
         const wanted = this.mesh.position.clone().addScaledVector(toPlayer, this.speed * dt);
-        // try collision test
         if(!checkCollisionCircle(wanted.x, wanted.z, 0.35)){
           this.mesh.position.copy(wanted);
         }
       } else {
-        // too close to player: attack occasionally
         if(Math.random() < dt * 0.25) {
-          // bite: damage player
           player.damage(6 + Math.floor(Math.random()*5));
         }
       }
@@ -508,7 +465,6 @@
 
     hit(dmg) {
       this.hp -= dmg;
-      // flash red
       this.mesh.material.color.setHex(0xff4444);
       setTimeout(()=> {
         this.mesh.material.color.setHex(0xff6666);
@@ -524,7 +480,6 @@
   /* ----------------------
      Effects: particle system for hits
      ---------------------- */
-  const particles = [];
   function spawnHitParticles(x,y,z) {
     const particleCount = 18 + Math.floor(Math.random()*12);
     const geom = new THREE.BufferGeometry();
@@ -555,13 +510,10 @@
         pos[j*3] += p._velocities[j].x * dt;
         pos[j*3+1] += p._velocities[j].y * dt;
         pos[j*3+2] += p._velocities[j].z * dt;
-        // apply gravity
         p._velocities[j].y -= 3.5 * dt;
-        // damp
         p._velocities[j].multiplyScalar(0.995);
       }
       p.geometry.attributes.position.needsUpdate = true;
-      // fade out
       p.material.opacity = Math.max(0, p._life / 1.0);
       if(p._life <= 0) {
         scene.remove(p);
@@ -574,14 +526,12 @@
      Collision helpers (circle vs grid wall)
      ---------------------- */
   function checkCollisionCircle(wx, wz, radius) {
-    // test candidate against all wall mesh centers
     for(const w of walls){
       const mx = w.mesh.position.x;
       const mz = w.mesh.position.z;
       const dx = wx - mx;
       const dz = wz - mz;
-      // treat wall as a square of half-size CELL*0.5 (since we used CELL sized)
-      const half = CELL*0.5 * 0.9; // margin
+      const half = CELL*0.5 * 0.9;
       const closestX = Math.max(-half, Math.min(half, dx));
       const closestZ = Math.max(-half, Math.min(half, dz));
       const ox = dx - closestX;
@@ -637,7 +587,6 @@
     if(!pointerLocked) return;
     if(e.button === 0) {
       const started = sword.startSwing();
-      // if started add small camera yank
       if(started){
         player.shake.intensity = 0.02;
         player.shake.duration = 0.08;
@@ -657,10 +606,8 @@
       const x = Math.floor(Math.random() * (maze.w - 2)) + 1;
       const z = Math.floor(Math.random() * (maze.h - 2)) + 1;
       if(maze.grid[z][x] === '.') {
-        // convert to world coords
         const wx = offsets.offsetX + x*CELL;
         const wz = offsets.offsetZ + z*CELL;
-        // avoid spawning too close to player
         if(Math.hypot(wx - player.pos.x, wz - player.pos.z) > CELL * 3) {
           return {x:wx, z:wz};
         }
@@ -675,14 +622,13 @@
   }
   hudMonsters.innerText = `Monsters: ${monsters.length}`;
 
-  // simple fps counter
+  // simple fps counter (declared before update uses it)
   let frames = 0, accum = 0;
 
   /* ----------------------
-     Sound (WebAudio) — generate simple tones for footstep, swing, hit
+     Sound (WebAudio)
      ---------------------- */
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
   function playTone(freq, time, type='sine', gain=0.05) {
     const osc = audioCtx.createOscillator();
     const g = audioCtx.createGain();
@@ -693,23 +639,12 @@
     g.connect(audioCtx.destination);
     osc.start();
     osc.stop(audioCtx.currentTime + time);
-    // quick fade out
     g.gain.setValueAtTime(g.gain.value, audioCtx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + time);
   }
-
-  function playFootstep(){
-    // subtle low thump
-    playTone(120 + Math.random()*30, 0.12, 'sine', 0.03);
-  }
-  function playSwing(){
-    playTone(650 + Math.random()*120, 0.08, 'triangle', 0.08);
-    playTone(320, 0.12, 'sine', 0.02);
-  }
-  function playHit(){
-    playTone(240, 0.06, 'sawtooth', 0.12);
-    playTone(980, 0.12, 'square', 0.04);
-  }
+  function playFootstep(){ playTone(120 + Math.random()*30, 0.12, 'sine', 0.03); }
+  function playSwing(){ playTone(650 + Math.random()*120, 0.08, 'triangle', 0.08); playTone(320, 0.12, 'sine', 0.02); }
+  function playHit(){ playTone(240, 0.06, 'sawtooth', 0.12); playTone(980, 0.12, 'square', 0.04); }
 
   /* ----------------------
      HUD & messages
@@ -722,17 +657,13 @@
 
   // restart
   function restart(){
-    // clear monsters & particles & walls & rebuild maze
     monsters.forEach(m => scene.remove(m.mesh));
     monsters.length = 0;
     particles.forEach(p => scene.remove(p));
     particles.length = 0;
-    // regenerate maze
     maze.generate();
     const newOffsets = maze.buildMeshes();
-    // reposition player to start
     player.setPosition(newOffsets.offsetX + CELL, newOffsets.offsetZ + CELL);
-    // spawn monsters
     for(let i=0;i<MONSTER_COUNT;i++){
       const pos = pickFreeCell();
       const m = new Monster(pos.x, pos.z);
@@ -749,16 +680,11 @@
      Main loop
      ---------------------- */
   function update(dt) {
-    // update player (movement)
     player.update(dt, input);
-    // update sword
     sword.update(dt);
-    // update monsters
     for(const m of monsters) m.update(dt);
-    // update particles
     updateParticles(dt);
 
-    // update HUD
     frames++;
     accum += dt;
     if(accum > 0.5){
@@ -782,6 +708,9 @@
   // Start
   animate();
   showMessage('Click the screen to lock pointer and play', 3500);
+
+  // Note about favicon 404:
+  // The browser automatically tries to fetch /favicon.ico. If your server doesn't provide one you'll see a 404 in DevTools — it's harmless.
 
 })();
 </script>
