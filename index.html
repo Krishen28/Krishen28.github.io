@@ -1,213 +1,789 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Block Maze Sword Game</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Block Maze — Full Single-File Game</title>
 <style>
-  html,body {margin:0;overflow:hidden;height:100%;background:#000;color:white;font-family:sans-serif;}
-  #info{position:absolute;top:10px;width:100%;text-align:center;z-index:1;}
+  html,body { height:100%; margin:0; background:#050508; color:#fff; font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; overflow:hidden; }
+  #overlay {
+    position:absolute; left:10px; top:10px; z-index:10;
+    background: rgba(0,0,0,0.35); padding:8px 10px; border-radius:8px;
+    backdrop-filter: blur(4px);
+  }
+  #hud { position:absolute; right:10px; top:10px; z-index:10; text-align:right; background:rgba(0,0,0,0.35); padding:8px 10px; border-radius:8px; }
+  #message { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:12; padding:14px 22px; border-radius:12px; background:rgba(0,0,0,0.6); display:none; }
+  #canvas-container { width:100%; height:100%; }
+  #fps { font-size:12px; color:#bfefff; }
+  #controls { font-size:13px; }
+  a { color:#9fd; }
+  .small { font-size:12px; color:#ddd; opacity:0.9; margin-top:6px; }
 </style>
 </head>
 <body>
-<div id="info">W A S D = Move | Mouse = Look | Click = Swing Sword</div>
+<div id="overlay">
+  <div style="font-weight:700; font-size:16px;">Block Maze — Sword Demo</div>
+  <div id="controls" class="small">W A S D — Move &nbsp;•&nbsp; Mouse — Look &nbsp;•&nbsp; Click — Swing</div>
+  <div class="small" style="margin-top:8px;">Tip: click canvas to lock pointer. Press Esc to release.</div>
+</div>
+<div id="hud">
+  <div id="health">Health: 100</div>
+  <div id="monsters">Monsters: 0</div>
+  <div id="fps">FPS: 0</div>
+</div>
+<div id="message"></div>
+<div id="canvas-container"></div>
 
+<!-- Three.js (module-free build for single-file simplicity) -->
 <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
 
 <script>
-let scene, camera, renderer;
-const keys = {}, monsters = [], walls = [];
-let yaw = 0, pitch = 0;
-let sword, swordSwing = 0, isSwinging = false;
+/* =========================================================
+   Full Single-File Game
+   - Procedural Maze (recursive backtracker)
+   - Player/Monster/Sword/Effects classes
+   - Pointer-lock FPS controls
+   - Collision, sounds (WebAudio), particles
+   ========================================================= */
 
-const mazeData = [
-  "############",
-  "#..........#",
-  "#.######...#",
-  "#.#....#...#",
-  "#.#.##.#...#",
-  "#.#....#...#",
-  "#.######...#",
-  "#..........#",
-  "############"
-];
+(() => {
+  // Basic config
+  const CELL = 2.0;             // cell size (world units)
+  const MAZE_W = 21;            // odd numbers work well
+  const MAZE_H = 21;
+  const PLAYER_HEIGHT = 1.6;
+  const PLAYER_SPEED = 2.2;     // units per second
+  const MONSTER_COUNT = 8;
+  const MONSTER_SPEED = 0.9;
+  const SWING_COOLDOWN = 0.6;   // seconds
+  const TRAIL_LENGTH = 12;      // sword trail points
 
-init();
-animate();
+  // DOM
+  const container = document.getElementById('canvas-container');
+  const hudHealth = document.getElementById('health');
+  const hudMonsters = document.getElementById('monsters');
+  const hudFPS = document.getElementById('fps');
+  const messageBox = document.getElementById('message');
 
-function init() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.03);
+  // Three essentials
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0c1116);
+  scene.fog = new THREE.FogExp2(0x0c1116, 0.035);
 
-  camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
-  camera.position.set(1.5, 1.5, 1.5);
+  const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
+  camera.position.set(CELL, PLAYER_HEIGHT, CELL);
+
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  container.appendChild(renderer.domElement);
+
+  // Resize
+  window.addEventListener('resize', () => {
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  // Clock
+  const clock = new THREE.Clock();
+
+  // Texture loader
+  const tloader = new THREE.TextureLoader();
+  const floorTex = tloader.load('https://i.imgur.com/yY6tjqm.jpeg');
+  floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+  floorTex.repeat.set(20,20);
+  const wallTex = tloader.load('https://i.imgur.com/Jd2NPFf.jpeg');
+  wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
+  wallTex.repeat.set(1,1);
+  const monsterTex = tloader.load('https://i.imgur.com/8d5VGwN.jpeg');
 
   // Lights
-  const sun = new THREE.DirectionalLight(0xffffff, 1);
-  sun.position.set(5, 10, 5);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x222233, 0.6);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff7ec, 0.9);
+  sun.position.set(30, 50, 40);
   sun.castShadow = true;
+  sun.shadow.mapSize.set(2048,2048);
+  sun.shadow.camera.left = -50;
+  sun.shadow.camera.right = 50;
+  sun.shadow.camera.top = 50;
+  sun.shadow.camera.bottom = -50;
   scene.add(sun);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-
-  // Textures
-  const loader = new THREE.TextureLoader();
-  const floorTex = loader.load("https://i.imgur.com/yY6tjqm.jpeg");
-  floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-  floorTex.repeat.set(25, 25);
-
-  const wallTex = loader.load("https://i.imgur.com/Jd2NPFf.jpeg");
-  wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
-  wallTex.repeat.set(1, 1);
-
-  const monsterTex = loader.load("https://i.imgur.com/8d5VGwN.jpeg"); // optional texture
 
   // Floor
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.8, metalness: 0.1 });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), floorMat);
-  floor.rotation.x = -Math.PI / 2;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(CELL*MAZE_W*1.5, CELL*MAZE_H*1.5), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 }));
+  floor.rotation.x = -Math.PI/2;
+  floor.receiveShadow = true;
   scene.add(floor);
 
-  // Maze walls
-  const wallGeo = new THREE.BoxGeometry(1, 2, 1);
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex });
-  for (let z = 0; z < mazeData.length; z++) {
-    for (let x = 0; x < mazeData[z].length; x++) {
-      if (mazeData[z][x] === "#") {
-        const wall = new THREE.Mesh(wallGeo, wallMat);
-        wall.position.set(x, 1, z);
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        scene.add(wall);
-        walls.push(wall);
+  // Variables to store world objects
+  let walls = [];    // meshes for walls (for collision)
+  let monsters = []; // Monster instances
+
+  // Helper: Vector2 equality tolerance
+  function vec2Equal(a,b){ return Math.abs(a.x-b.x)<0.001 && Math.abs(a.y-b.y)<0.001; }
+
+  /* ----------------------
+     Maze generation (grid of cells, recursive backtracker)
+     Maze representation:
+       grid: odd sizes; cells at odd indices; walls at even indexes
+     We'll create wall meshes for '#' cells
+     ---------------------- */
+  class Maze {
+    constructor(w, h) {
+      this.w = (w % 2 === 0) ? w+1 : w;
+      this.h = (h % 2 === 0) ? h+1 : h;
+      this.grid = [];
+      for(let z=0; z<this.h; z++){
+        this.grid[z] = [];
+        for(let x=0; x<this.w; x++){
+          this.grid[z][x] = '#';
+        }
+      }
+    }
+
+    // carve passage cells
+    generate() {
+      const w = this.w, h = this.h;
+      // Start at random odd cell
+      const stack = [];
+      const startX = 1, startZ = 1;
+      this.grid[startZ][startX] = '.';
+      stack.push({x:startX,z:startZ});
+
+      const dirs = [
+        {x:0,z:-2}, {x:2,z:0}, {x:0,z:2}, {x:-2,z:0}
+      ];
+
+      while(stack.length){
+        const cur = stack[stack.length-1];
+        const neighbors = [];
+        for(const d of dirs){
+          const nx = cur.x + d.x;
+          const nz = cur.z + d.z;
+          if(nx>0 && nz>0 && nx<w-1 && nz<h-1 && this.grid[nz][nx] === '#'){
+            neighbors.push({x:nx,z:nz,dir:d});
+          }
+        }
+        if(neighbors.length === 0) {
+          stack.pop();
+        } else {
+          const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
+          // carve between
+          const betweenX = cur.x + pick.dir.x/2;
+          const betweenZ = cur.z + pick.dir.z/2;
+          this.grid[betweenZ][betweenX] = '.';
+          this.grid[pick.z][pick.x] = '.';
+          stack.push({x:pick.x,z:pick.z});
+        }
+      }
+
+      // ensure entrance/exit
+      this.grid[1][0] = '.'; // left opening
+      this.grid[this.h-2][this.w-1] = '.'; // right opening
+    }
+
+    // build three.js wall meshes from grid
+    buildMeshes() {
+      // clear old walls
+      walls.forEach(w => scene.remove(w.mesh));
+      walls = [];
+
+      const wallGeom = new THREE.BoxGeometry(CELL, CELL*1.1, CELL);
+      const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, metalness: 0.02, roughness: 0.9 });
+
+      // offset so maze centered around origin
+      const offsetX = - (this.w * CELL)/2 + CELL/2;
+      const offsetZ = - (this.h * CELL)/2 + CELL/2;
+
+      for(let z=0; z<this.h; z++){
+        for(let x=0; x<this.w; x++){
+          if(this.grid[z][x] === '#'){
+            const mesh = new THREE.Mesh(wallGeom, wallMat);
+            mesh.position.set(offsetX + x*CELL, CELL*0.55, offsetZ + z*CELL);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            walls.push({mesh, x, z});
+          }
+        }
+      }
+      return {offsetX, offsetZ};
+    }
+  }
+
+  // Create procedural maze
+  const maze = new Maze(MAZE_W, MAZE_H);
+  maze.generate();
+  const offsets = maze.buildMeshes();
+
+  /* ----------------------
+     Player class (handles movement, collision, health)
+     ---------------------- */
+  class Player {
+    constructor(camera) {
+      this.camera = camera;
+      this.pos = new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z);
+      this.yaw = 0;
+      this.pitch = 0;
+      this.health = 100;
+      this.speed = PLAYER_SPEED;
+      this.radius = 0.35; // collision radius
+      this.walkCool = 0;
+      this.canMove = true;
+      this.swingTimer = 0;
+      this.shake = {intensity:0, duration:0};
+    }
+
+    applyShake(dt){
+      if(this.shake.duration > 0){
+        this.shake.duration -= dt;
+        const s = this.shake.intensity * (this.shake.duration / 0.25);
+        // small random offset
+        camera.position.x += (Math.random()*2-1) * s;
+        camera.position.y += (Math.random()*2-1) * s * 0.5;
+        camera.position.z += (Math.random()*2-1) * s;
+      }
+    }
+
+    setPosition(x,z){
+      this.pos.x = x; this.pos.z = z;
+      this.camera.position.x = x;
+      this.camera.position.z = z;
+      this.camera.position.y = PLAYER_HEIGHT;
+    }
+
+    update(dt, input) {
+      // rotation already applied via pointer controls; yaw/pitch stored in globals
+      // movement based on direction and yaw
+      if(!this.canMove) return;
+      const vx = 0, vy = 0;
+      // compute direction vector in world coords
+      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+      const right = new THREE.Vector3(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
+      let move = new THREE.Vector3();
+
+      if(input.forward) move.addScaledVector(forward, 1);
+      if(input.back) move.addScaledVector(forward, -1);
+      if(input.left) move.addScaledVector(right, -1);
+      if(input.right) move.addScaledVector(right, 1);
+
+      if(move.length() > 0.001){
+        move.normalize();
+        const wanted = this.pos.clone().addScaledVector(move, this.speed * dt);
+        if(!checkCollisionCircle(wanted.x, wanted.z, this.radius)) {
+          this.setPosition(wanted.x, wanted.z);
+          this.walkCool += dt;
+          if(this.walkCool > 0.3) {
+            this.walkCool = 0;
+            playFootstep();
+          }
+        }
+      }
+
+      // swing timer
+      if(this.swingTimer > 0) this.swingTimer = Math.max(0, this.swingTimer - dt);
+      this.applyShake(dt);
+    }
+
+    damage(amount){
+      this.health = Math.max(0, this.health - amount);
+      hudHealth.innerText = `Health: ${this.health}`;
+      this.shake.intensity = 0.12;
+      this.shake.duration = 0.25;
+      if(this.health <= 0){
+        showMessage("You died! Press R to restart.");
+        this.canMove = false;
       }
     }
   }
 
-  // Monsters
-  const mGeo = new THREE.BoxGeometry(0.8, 1, 0.8);
-  const mMat = new THREE.MeshStandardMaterial({ map: monsterTex });
-  for (let i = 0; i < 5; i++) {
-    const pos = getFreePosition();
-    const m = new THREE.Mesh(mGeo, mMat);
-    m.position.set(pos.x, 0.5, pos.z);
-    scene.add(m);
-    monsters.push(m);
+  /* ----------------------
+     Sword class: swing animation, trail, hit detection
+     ---------------------- */
+  class Sword {
+    constructor(player) {
+      this.player = player;
+      // simple sword model (blade + handle)
+      const bladeGeo = new THREE.BoxGeometry(0.08, 1.0, 0.12);
+      const bladeMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness:0.8, roughness:0.2 });
+      this.blade = new THREE.Mesh(bladeGeo, bladeMat);
+      this.blade.castShadow = true;
+      this.blade.position.set(0.4, -0.6, -1.0);
+      this.blade.rotation.x = -0.25;
+
+      const handleGeo = new THREE.BoxGeometry(0.12, 0.25, 0.12);
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0x553300, roughness:0.8 });
+      this.handle = new THREE.Mesh(handleGeo, handleMat);
+      this.handle.position.set(0.4, -1.05, -1.0);
+
+      this.group = new THREE.Group();
+      this.group.add(this.blade);
+      this.group.add(this.handle);
+
+      // attach to camera
+      camera.add(this.group);
+      this.group.position.set(0,0,0); // camera-local
+      this.swinging = false;
+      this.timer = 0; // swing progress
+      this.cooldown = 0;
+      this.trailPositions = [];
+      this.trailGeo = new THREE.BufferGeometry();
+      const pts = new Float32Array(TRAIL_LENGTH * 3);
+      this.trailGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+      const trailMat = new THREE.LineBasicMaterial({ color:0xffd080, transparent:true, opacity:0.9 });
+      this.trail = new THREE.Line(this.trailGeo, trailMat);
+      scene.add(this.trail);
+      this.lastWorldPos = new THREE.Vector3();
+    }
+
+    update(dt) {
+      // cooldown
+      if(this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
+
+      // if swinging animate with sine for smooth arc
+      if(this.swinging) {
+        this.timer += dt * 6; // speed of swing
+        const progress = this.timer; // 0..pi roughly
+        const angle = Math.sin(progress) * Math.PI * 0.7; // arc amplitude
+        // apply rotation to group (rotate around camera-local X axis)
+        this.group.rotation.set(angle - 0.7, 0.0, 0.0);
+
+        // record trail
+        const worldPos = new THREE.Vector3();
+        this.blade.getWorldPosition(worldPos);
+        this.trailPositions.unshift(worldPos.clone());
+        if(this.trailPositions.length > TRAIL_LENGTH) this.trailPositions.pop();
+        this.updateTrailGeometry();
+
+        // hit detection near peak
+        if(progress > Math.PI * 0.28 && progress < Math.PI * 0.55 && !this._didHit) {
+          this._didHit = true;
+          // test monsters in range
+          this.tryHitMonsters(worldPos);
+        }
+
+        if(this.timer > Math.PI) {
+          // end swing
+          this.swinging = false;
+          this._didHit = false;
+          this.timer = 0;
+          this.cooldown = SWING_COOLDOWN;
+          // clear trail slowly
+        }
+      } else {
+        // idle slight bob to sword
+        this.group.rotation.x = -0.3 + Math.sin(performance.now() * 0.002) * 0.02;
+        // fade trail
+        if(this.trailPositions.length > 0) {
+          this.trailPositions.shift();
+          this.updateTrailGeometry();
+        }
+      }
+    }
+
+    startSwing() {
+      if(this.cooldown > 0) return false;
+      this.swinging = true;
+      this.timer = 0.01;
+      this._didHit = false;
+      playSwing();
+      return true;
+    }
+
+    updateTrailGeometry(){
+      const pts = this.trailGeo.attributes.position.array;
+      // fill with positions or zeros
+      for(let i=0;i<TRAIL_LENGTH;i++){
+        const p = this.trailPositions[i];
+        const idx = i*3;
+        if(p){
+          pts[idx] = p.x; pts[idx+1] = p.y; pts[idx+2] = p.z;
+        } else {
+          pts[idx] = pts[idx+1] = pts[idx+2] = 0;
+        }
+      }
+      this.trailGeo.attributes.position.needsUpdate = true;
+    }
+
+    tryHitMonsters(worldPos) {
+      // check monsters within distance and near forward cone
+      const hitRadius = 1.6;
+      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
+      for(let i = monsters.length - 1; i >=0; i--){
+        const mon = monsters[i];
+        const mpos = mon.mesh.position;
+        const toMonster = mpos.clone().sub(camera.position);
+        const dist = toMonster.length();
+        if(dist <= hitRadius) {
+          // check angle
+          toMonster.y = 0;
+          toMonster.normalize();
+          const dot = forward.dot(toMonster);
+          if(dot > 0.3) {
+            // hit
+            mon.hit(1 + Math.floor(Math.random()*3));
+            playHit();
+            spawnHitParticles(mpos.x, mpos.y + 0.5, mpos.z);
+            // slight knockback
+            const kb = toMonster.clone().multiplyScalar(-0.8);
+            mon.applyKnockback(kb);
+            if(mon.hp <= 0){
+              // remove monster
+              scene.remove(mon.mesh);
+              monsters.splice(i,1);
+              hudMonsters.innerText = `Monsters: ${monsters.length}`;
+            }
+          }
+        }
+      }
+    }
   }
 
-  // Sword
-  const sGeo = new THREE.BoxGeometry(0.1, 1, 0.1);
-  const sMat = new THREE.MeshStandardMaterial({ color: 0xccaa00 });
-  sword = new THREE.Mesh(sGeo, sMat);
-  sword.position.set(0.3, -0.5, -1);
-  camera.add(sword);
+  /* ----------------------
+     Monster class
+     - simple steering toward player
+     - hp, bobbing animation, glow, hit method
+     ---------------------- */
+  class Monster {
+    constructor(x,z) {
+      const geo = new THREE.BoxGeometry(CELL*0.4, CELL*0.9, CELL*0.4);
+      const mat = new THREE.MeshStandardMaterial({ map: monsterTex, color: 0xff6666, roughness: 0.8, metalness:0.1 });
+      this.mesh = new THREE.Mesh(geo, mat);
+      this.mesh.castShadow = true;
+      this.mesh.position.set(x, 0.45, z);
+      scene.add(this.mesh);
 
-  // Point light on sword for glow
-  const swordLight = new THREE.PointLight(0xffddaa, 0.8, 5);
-  sword.add(swordLight);
+      // Eye glow: small emissive sphere on front
+      const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
+      const eyeMat = new THREE.MeshBasicMaterial({ color:0xff9933 });
+      this.eye = new THREE.Mesh(eyeGeo, eyeMat);
+      this.eye.position.set(0, 0.45, 0.26);
+      this.mesh.add(this.eye);
 
-  // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = true;
-  document.body.appendChild(renderer.domElement);
+      this.hp = 3 + Math.floor(Math.random()*3);
+      this.speed = MONSTER_SPEED * (0.8 + Math.random()*0.6);
+      this.knockback = new THREE.Vector3();
+      this.knockTimer = 0;
+    }
 
-  // Input
-  document.addEventListener("keydown", e => keys[e.code] = true);
-  document.addEventListener("keyup", e => keys[e.code] = false);
+    update(dt) {
+      // bobbing animation
+      this.mesh.position.y = 0.45 + Math.sin(performance.now() * 0.002 + (this.mesh.position.x + this.mesh.position.z)) * 0.06;
 
-  document.addEventListener("mousemove", e => {
-    yaw -= e.movementX * 0.002;
-    pitch -= e.movementY * 0.002;
-    pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+      // glow pulse
+      const glow = 0.5 + Math.abs(Math.sin(performance.now()*0.003 + this.mesh.position.x)) * 0.6;
+      this.eye.material.color.setScalar(1.0);
+      this.eye.material.needsUpdate = true;
+      this.eye.scale.set(1,1,1).multiplyScalar(1 + (glow-0.5)*0.15);
+
+      // simple movement toward player with collision avoidance
+      const toPlayer = camera.position.clone().sub(this.mesh.position);
+      toPlayer.y = 0;
+      const dist = toPlayer.length();
+      if(this.knockTimer > 0){
+        // apply knockback
+        this.mesh.position.addScaledVector(this.knockback, dt);
+        this.knockTimer -= dt;
+        if(this.knockTimer <= 0) this.knockback.set(0,0,0);
+        return;
+      }
+      if(dist > 1.6) {
+        toPlayer.normalize();
+        const wanted = this.mesh.position.clone().addScaledVector(toPlayer, this.speed * dt);
+        // try collision test
+        if(!checkCollisionCircle(wanted.x, wanted.z, 0.35)){
+          this.mesh.position.copy(wanted);
+        }
+      } else {
+        // too close to player: attack occasionally
+        if(Math.random() < dt * 0.25) {
+          // bite: damage player
+          player.damage(6 + Math.floor(Math.random()*5));
+        }
+      }
+    }
+
+    hit(dmg) {
+      this.hp -= dmg;
+      // flash red
+      this.mesh.material.color.setHex(0xff4444);
+      setTimeout(()=> {
+        this.mesh.material.color.setHex(0xff6666);
+      }, 120);
+    }
+
+    applyKnockback(vec) {
+      this.knockback.copy(vec);
+      this.knockTimer = 0.15 + Math.random()*0.08;
+    }
+  }
+
+  /* ----------------------
+     Effects: particle system for hits
+     ---------------------- */
+  const particles = [];
+  function spawnHitParticles(x,y,z) {
+    const particleCount = 18 + Math.floor(Math.random()*12);
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = [];
+    for(let i=0;i<particleCount;i++){
+      positions[i*3] = x;
+      positions[i*3+1] = y;
+      positions[i*3+2] = z;
+      const v = new THREE.Vector3((Math.random()*2-1)*1.8, Math.random()*1.6, (Math.random()*2-1)*1.8);
+      velocities.push(v);
+    }
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({ size: 0.08, color: 0xffd0a6, transparent:true });
+    const pts = new THREE.Points(geom, material);
+    pts._velocities = velocities;
+    pts._life = 0.8 + Math.random()*0.5;
+    scene.add(pts);
+    particles.push(pts);
+  }
+
+  function updateParticles(dt) {
+    for(let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p._life -= dt;
+      const pos = p.geometry.attributes.position.array;
+      for(let j=0;j<pos.length/3;j++){
+        pos[j*3] += p._velocities[j].x * dt;
+        pos[j*3+1] += p._velocities[j].y * dt;
+        pos[j*3+2] += p._velocities[j].z * dt;
+        // apply gravity
+        p._velocities[j].y -= 3.5 * dt;
+        // damp
+        p._velocities[j].multiplyScalar(0.995);
+      }
+      p.geometry.attributes.position.needsUpdate = true;
+      // fade out
+      p.material.opacity = Math.max(0, p._life / 1.0);
+      if(p._life <= 0) {
+        scene.remove(p);
+        particles.splice(i,1);
+      }
+    }
+  }
+
+  /* ----------------------
+     Collision helpers (circle vs grid wall)
+     ---------------------- */
+  function checkCollisionCircle(wx, wz, radius) {
+    // test candidate against all wall mesh centers
+    for(const w of walls){
+      const mx = w.mesh.position.x;
+      const mz = w.mesh.position.z;
+      const dx = wx - mx;
+      const dz = wz - mz;
+      // treat wall as a square of half-size CELL*0.5 (since we used CELL sized)
+      const half = CELL*0.5 * 0.9; // margin
+      const closestX = Math.max(-half, Math.min(half, dx));
+      const closestZ = Math.max(-half, Math.min(half, dz));
+      const ox = dx - closestX;
+      const oz = dz - closestZ;
+      const dist2 = ox*ox + oz*oz;
+      if(dist2 < (radius*radius)) return true;
+    }
+    return false;
+  }
+
+  /* ----------------------
+     Input & Pointer Lock
+     ---------------------- */
+  const input = { forward:false, back:false, left:false, right:false };
+
+  window.addEventListener('keydown', (e) => {
+    if(e.code === 'KeyW') input.forward = true;
+    if(e.code === 'KeyS') input.back = true;
+    if(e.code === 'KeyA') input.left = true;
+    if(e.code === 'KeyD') input.right = true;
+    if(e.code === 'KeyR') restart();
+  });
+  window.addEventListener('keyup', (e) => {
+    if(e.code === 'KeyW') input.forward = false;
+    if(e.code === 'KeyS') input.back = false;
+    if(e.code === 'KeyA') input.left = false;
+    if(e.code === 'KeyD') input.right = false;
+  });
+
+  // Mouse look via pointer lock
+  let pointerLocked = false;
+  renderer.domElement.style.cursor = 'pointer';
+  renderer.domElement.addEventListener('click', () => {
+    renderer.domElement.requestPointerLock();
+  });
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === renderer.domElement;
+    renderer.domElement.style.cursor = pointerLocked ? 'none' : 'pointer';
+  });
+
+  // track yaw/pitch global variables
+  window.addEventListener('mousemove', (e) => {
+    if(!pointerLocked) return;
+    const sensitivity = 0.0024;
+    yaw -= e.movementX * sensitivity;
+    pitch -= e.movementY * sensitivity;
+    pitch = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, pitch));
     camera.rotation.set(pitch, yaw, 0);
   });
 
-  document.addEventListener("click", () => {
-    if (!isSwinging) {
-      isSwinging = true;
-      swordSwing = 0;
+  // click to swing
+  window.addEventListener('mousedown', (e) => {
+    if(!pointerLocked) return;
+    if(e.button === 0) {
+      const started = sword.startSwing();
+      // if started add small camera yank
+      if(started){
+        player.shake.intensity = 0.02;
+        player.shake.duration = 0.08;
+      }
     }
   });
 
-  window.addEventListener("resize", () => {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-  });
-}
+  // instantiate player & sword
+  const player = new Player(camera);
+  player.setPosition(offsets.offsetX + CELL, offsets.offsetZ + CELL);
 
-function getFreePosition() {
-  while (true) {
-    let x = Math.floor(Math.random() * (mazeData[0].length - 2)) + 1;
-    let z = Math.floor(Math.random() * (mazeData.length - 2)) + 1;
-    if (mazeData[z][x] === ".") return { x: x, z: z };
-  }
-}
+  const sword = new Sword(player);
 
-function animate() {
-  requestAnimationFrame(animate);
-  movePlayer();
-  moveMonsters();
-  updateSword();
-  renderer.render(scene, camera);
-}
-
-function movePlayer() {
-  const speed = 0.05;
-  const dir = new THREE.Vector3();
-  if (keys["KeyW"]) dir.z -= 1;
-  if (keys["KeyS"]) dir.z += 1;
-  if (keys["KeyA"]) dir.x -= 1;
-  if (keys["KeyD"]) dir.x += 1;
-  dir.normalize();
-
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-  const right = new THREE.Vector3(Math.sin(yaw + Math.PI / 2), 0, Math.cos(yaw + Math.PI / 2));
-
-  let nextPos = camera.position.clone();
-  nextPos.addScaledVector(forward, dir.z * speed);
-  nextPos.addScaledVector(right, dir.x * speed);
-
-  if (!checkCollision(nextPos)) camera.position.copy(nextPos);
-}
-
-function checkCollision(pos) {
-  for (const wall of walls) {
-    const dx = pos.x - wall.position.x;
-    const dz = pos.z - wall.position.z;
-    if (Math.abs(dx) < 0.5 && Math.abs(dz) < 0.5) return true;
-  }
-  return false;
-}
-
-function moveMonsters() {
-  const playerPos = camera.position;
-  for (let i = monsters.length - 1; i >= 0; i--) {
-    const m = monsters[i];
-    const toPlayer = playerPos.clone().sub(m.position);
-    if (toPlayer.length() < 1.2 && isSwinging && swordSwing < Math.PI / 3) {
-      scene.remove(m);
-      monsters.splice(i, 1);
-      continue;
-    }
-    toPlayer.y = 0;
-    toPlayer.normalize();
-    let nextPos = m.position.clone().addScaledVector(toPlayer, 0.02);
-    if (!checkCollision(nextPos)) m.position.copy(nextPos);
-  }
-}
-
-function updateSword() {
-  if (isSwinging) {
-    swordSwing += 0.15;
-    sword.rotation.x = Math.sin(swordSwing) * Math.PI / 3;
-    if (swordSwing > Math.PI) {
-      isSwinging = false;
-      sword.rotation.x = 0;
+  // Spawn monsters at free cells
+  function pickFreeCell() {
+    while(true){
+      const x = Math.floor(Math.random() * (maze.w - 2)) + 1;
+      const z = Math.floor(Math.random() * (maze.h - 2)) + 1;
+      if(maze.grid[z][x] === '.') {
+        // convert to world coords
+        const wx = offsets.offsetX + x*CELL;
+        const wz = offsets.offsetZ + z*CELL;
+        // avoid spawning too close to player
+        if(Math.hypot(wx - player.pos.x, wz - player.pos.z) > CELL * 3) {
+          return {x:wx, z:wz};
+        }
+      }
     }
   }
-}
+
+  for(let i=0;i<MONSTER_COUNT;i++){
+    const pos = pickFreeCell();
+    const m = new Monster(pos.x, pos.z);
+    monsters.push(m);
+  }
+  hudMonsters.innerText = `Monsters: ${monsters.length}`;
+
+  // simple fps counter
+  let frames = 0, accum = 0;
+
+  /* ----------------------
+     Sound (WebAudio) — generate simple tones for footstep, swing, hit
+     ---------------------- */
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  function playTone(freq, time, type='sine', gain=0.05) {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.value = gain;
+    osc.connect(g);
+    g.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + time);
+    // quick fade out
+    g.gain.setValueAtTime(g.gain.value, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + time);
+  }
+
+  function playFootstep(){
+    // subtle low thump
+    playTone(120 + Math.random()*30, 0.12, 'sine', 0.03);
+  }
+  function playSwing(){
+    playTone(650 + Math.random()*120, 0.08, 'triangle', 0.08);
+    playTone(320, 0.12, 'sine', 0.02);
+  }
+  function playHit(){
+    playTone(240, 0.06, 'sawtooth', 0.12);
+    playTone(980, 0.12, 'square', 0.04);
+  }
+
+  /* ----------------------
+     HUD & messages
+     ---------------------- */
+  function showMessage(text, t=4000) {
+    messageBox.innerText = text;
+    messageBox.style.display = 'block';
+    if(t>0) setTimeout(()=> messageBox.style.display='none', t);
+  }
+
+  // restart
+  function restart(){
+    // clear monsters & particles & walls & rebuild maze
+    monsters.forEach(m => scene.remove(m.mesh));
+    monsters.length = 0;
+    particles.forEach(p => scene.remove(p));
+    particles.length = 0;
+    // regenerate maze
+    maze.generate();
+    const newOffsets = maze.buildMeshes();
+    // reposition player to start
+    player.setPosition(newOffsets.offsetX + CELL, newOffsets.offsetZ + CELL);
+    // spawn monsters
+    for(let i=0;i<MONSTER_COUNT;i++){
+      const pos = pickFreeCell();
+      const m = new Monster(pos.x, pos.z);
+      monsters.push(m);
+    }
+    hudMonsters.innerText = `Monsters: ${monsters.length}`;
+    player.health = 100;
+    hudHealth.innerText = `Health: ${player.health}`;
+    messageBox.style.display = 'none';
+    player.canMove = true;
+  }
+
+  /* ----------------------
+     Main loop
+     ---------------------- */
+  function update(dt) {
+    // update player (movement)
+    player.update(dt, input);
+    // update sword
+    sword.update(dt);
+    // update monsters
+    for(const m of monsters) m.update(dt);
+    // update particles
+    updateParticles(dt);
+
+    // update HUD
+    frames++;
+    accum += dt;
+    if(accum > 0.5){
+      hudFPS.innerText = `FPS: ${Math.round(frames/accum)}`;
+      frames = 0; accum = 0;
+    }
+  }
+
+  function render() {
+    renderer.render(scene, camera);
+  }
+
+  // animation frame
+  function animate() {
+    const dt = Math.min(0.05, clock.getDelta());
+    update(dt);
+    render();
+    requestAnimationFrame(animate);
+  }
+
+  // Start
+  animate();
+  showMessage('Click the screen to lock pointer and play', 3500);
+
+})();
 </script>
 </body>
 </html>
