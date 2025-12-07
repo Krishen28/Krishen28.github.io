@@ -1,718 +1,974 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Block Maze — Full Single-File Game</title>
-<style>
-  html,body { height:100%; margin:0; background:#050508; color:#fff; font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; overflow:hidden; }
-  #overlay {
-    position:absolute; left:10px; top:10px; z-index:10;
-    background: rgba(0,0,0,0.35); padding:8px 10px; border-radius:8px;
-    backdrop-filter: blur(4px);
-  }
-  #hud { position:absolute; right:10px; top:10px; z-index:10; text-align:right; background:rgba(0,0,0,0.35); padding:8px 10px; border-radius:8px; }
-  #message { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:12; padding:14px 22px; border-radius:12px; background:rgba(0,0,0,0.6); display:none; }
-  #canvas-container { width:100%; height:100%; }
-  #fps { font-size:12px; color:#bfefff; }
-  #controls { font-size:13px; }
-  a { color:#9fd; }
-  .small { font-size:12px; color:#ddd; opacity:0.9; margin-top:6px; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>STONE LABYRINTH - Portable</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'neon-cyan': '#00ffff',
+                        'neon-pink': '#ff00ff',
+                        'neon-purple': '#a855f7',
+                    },
+                    fontFamily: {
+                        'press': ['"Press Start 2P"', 'system-ui'],
+                        'mono': ['"Space Mono"', 'monospace'],
+                    },
+                    animation: {
+                        'shake': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both infinite',
+                    },
+                    keyframes: {
+                        shake: {
+                            '10%, 90%': { transform: 'translate3d(-1px, 0, 0) rotate(-1deg)' },
+                            '20%, 80%': { transform: 'translate3d(2px, 0, 0) rotate(2deg)' },
+                            '30%, 50%, 70%': { transform: 'translate3d(-4px, 0, 0) rotate(-4deg)' },
+                            '40%, 60%': { transform: 'translate3d(4px, 0, 0) rotate(4deg)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #050510;
+            color: #e0f7fa;
+            background-image: radial-gradient(circle at center, hsla(270, 50%, 10%, 0.5) 0%, transparent 100%);
+            margin: 0;
+            overflow: hidden;
+            touch-action: none;
+        }
+        .text-glow { text-shadow: 0 0 10px currentColor; }
+        .text-glow-white { text-shadow: 0 0 15px rgba(255, 255, 255, 0.8); }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
 </head>
 <body>
-<div id="overlay">
-  <div style="font-weight:700; font-size:16px;">Block Maze — Sword Demo</div>
-  <div id="controls" class="small">W A S D — Move &nbsp;•&nbsp; Mouse — Look &nbsp;•&nbsp; Click — Swing</div>
-  <div class="small" style="margin-top:8px;">Tip: click canvas to lock pointer. Press Esc to release.</div>
-</div>
-<div id="hud">
-  <div id="health">Health: 100</div>
-  <div id="monsters">Monsters: 0</div>
-  <div id="fps">FPS: 0</div>
-</div>
-<div id="message"></div>
-<div id="canvas-container"></div>
-
-<!-- Three.js (module-free build for single-file simplicity) -->
-<script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
-
-<script>
-/* =========================================================
-   Full Single-File Game (fixed: yaw/pitch declared)
-   ========================================================= */
-
-(() => {
-  // Basic config
-  const CELL = 2.0;             // cell size (world units)
-  const MAZE_W = 21;            // odd numbers work well
-  const MAZE_H = 21;
-  const PLAYER_HEIGHT = 1.6;
-  const PLAYER_SPEED = 2.2;     // units per second
-  const MONSTER_COUNT = 8;
-  const MONSTER_SPEED = 0.9;
-  const SWING_COOLDOWN = 0.6;   // seconds
-  const TRAIL_LENGTH = 12;      // sword trail points
-
-  // DOM
-  const container = document.getElementById('canvas-container');
-  const hudHealth = document.getElementById('health');
-  const hudMonsters = document.getElementById('monsters');
-  const hudFPS = document.getElementById('fps');
-  const messageBox = document.getElementById('message');
-
-  // IMPORTANT FIX: declare yaw and pitch here so all code can access them.
-  // The ReferenceError you saw was because these were referenced before being declared.
-  let yaw = 0, pitch = 0;
-
-  // Three essentials
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0c1116);
-  scene.fog = new THREE.FogExp2(0x0c1116, 0.035);
-
-  const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
-  camera.position.set(CELL, PLAYER_HEIGHT, CELL);
-
-  const renderer = new THREE.WebGLRenderer({ antialias:true });
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  container.appendChild(renderer.domElement);
-
-  // Resize
-  window.addEventListener('resize', () => {
-    camera.aspect = innerWidth/innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-  });
-
-  // Clock
-  const clock = new THREE.Clock();
-
-  // Texture loader
-  const tloader = new THREE.TextureLoader();
-  const floorTex = tloader.load('https://i.imgur.com/yY6tjqm.jpeg');
-  floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-  floorTex.repeat.set(20,20);
-  const wallTex = tloader.load('https://i.imgur.com/Jd2NPFf.jpeg');
-  wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
-  wallTex.repeat.set(1,1);
-  const monsterTex = tloader.load('https://i.imgur.com/8d5VGwN.jpeg');
-
-  // Lights
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x222233, 0.6);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff7ec, 0.9);
-  sun.position.set(30, 50, 40);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048,2048);
-  sun.shadow.camera.left = -50;
-  sun.shadow.camera.right = 50;
-  sun.shadow.camera.top = 50;
-  sun.shadow.camera.bottom = -50;
-  scene.add(sun);
-
-  // Floor
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(CELL*MAZE_W*1.5, CELL*MAZE_H*1.5), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 }));
-  floor.rotation.x = -Math.PI/2;
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // Variables to store world objects
-  let walls = [];    // meshes for walls (for collision)
-  let monsters = []; // Monster instances
-  const particles = []; // particle containers (used by restart and updateParticles)
-
-  // Helper: Vector2 equality tolerance
-  function vec2Equal(a,b){ return Math.abs(a.x-b.x)<0.001 && Math.abs(a.y-b.y)<0.001; }
-
-  /* ----------------------
-     Maze generation (grid of cells, recursive backtracker)
-     ---------------------- */
-  class Maze {
-    constructor(w, h) {
-      this.w = (w % 2 === 0) ? w+1 : w;
-      this.h = (h % 2 === 0) ? h+1 : h;
-      this.grid = [];
-      for(let z=0; z<this.h; z++){
-        this.grid[z] = [];
-        for(let x=0; x<this.w; x++){
-          this.grid[z][x] = '#';
-        }
-      }
-    }
-
-    generate() {
-      const w = this.w, h = this.h;
-      const stack = [];
-      const startX = 1, startZ = 1;
-      this.grid[startZ][startX] = '.';
-      stack.push({x:startX,z:startZ});
-
-      const dirs = [
-        {x:0,z:-2}, {x:2,z:0}, {x:0,z:2}, {x:-2,z:0}
-      ];
-
-      while(stack.length){
-        const cur = stack[stack.length-1];
-        const neighbors = [];
-        for(const d of dirs){
-          const nx = cur.x + d.x;
-          const nz = cur.z + d.z;
-          if(nx>0 && nz>0 && nx<w-1 && nz<h-1 && this.grid[nz][nx] === '#'){
-            neighbors.push({x:nx,z:nz,dir:d});
-          }
-        }
-        if(neighbors.length === 0) {
-          stack.pop();
-        } else {
-          const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
-          const betweenX = cur.x + pick.dir.x/2;
-          const betweenZ = cur.z + pick.dir.z/2;
-          this.grid[betweenZ][betweenX] = '.';
-          this.grid[pick.z][pick.x] = '.';
-          stack.push({x:pick.x,z:pick.z});
-        }
-      }
-
-      this.grid[1][0] = '.';
-      this.grid[this.h-2][this.w-1] = '.';
-    }
-
-    buildMeshes() {
-      walls.forEach(w => scene.remove(w.mesh));
-      walls = [];
-
-      const wallGeom = new THREE.BoxGeometry(CELL, CELL*1.1, CELL);
-      const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, metalness: 0.02, roughness: 0.9 });
-
-      const offsetX = - (this.w * CELL)/2 + CELL/2;
-      const offsetZ = - (this.h * CELL)/2 + CELL/2;
-
-      for(let z=0; z<this.h; z++){
-        for(let x=0; x<this.w; x++){
-          if(this.grid[z][x] === '#'){
-            const mesh = new THREE.Mesh(wallGeom, wallMat);
-            mesh.position.set(offsetX + x*CELL, CELL*0.55, offsetZ + z*CELL);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            scene.add(mesh);
-            walls.push({mesh, x, z});
-          }
-        }
-      }
-      return {offsetX, offsetZ};
-    }
-  }
-
-  // Create procedural maze
-  const maze = new Maze(MAZE_W, MAZE_H);
-  maze.generate();
-  const offsets = maze.buildMeshes();
-
-  /* ----------------------
-     Player class (handles movement, collision, health)
-     ---------------------- */
-  class Player {
-    constructor(camera) {
-      this.camera = camera;
-      this.pos = new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z);
-      this.yaw = 0;
-      this.pitch = 0;
-      this.health = 100;
-      this.speed = PLAYER_SPEED;
-      this.radius = 0.35; // collision radius
-      this.walkCool = 0;
-      this.canMove = true;
-      this.swingTimer = 0;
-      this.shake = {intensity:0, duration:0};
-    }
-
-    applyShake(dt){
-      if(this.shake.duration > 0){
-        this.shake.duration -= dt;
-        const s = this.shake.intensity * (this.shake.duration / 0.25);
-        camera.position.x += (Math.random()*2-1) * s;
-        camera.position.y += (Math.random()*2-1) * s * 0.5;
-        camera.position.z += (Math.random()*2-1) * s;
-      }
-    }
-
-    setPosition(x,z){
-      this.pos.x = x; this.pos.z = z;
-      this.camera.position.x = x;
-      this.camera.position.z = z;
-      this.camera.position.y = PLAYER_HEIGHT;
-    }
-
-    update(dt, input) {
-      if(!this.canMove) return;
-      // compute direction vector in world coords using global yaw
-      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-      const right = new THREE.Vector3(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
-      let move = new THREE.Vector3();
-
-      if(input.forward) move.addScaledVector(forward, 1);
-      if(input.back) move.addScaledVector(forward, -1);
-      if(input.left) move.addScaledVector(right, -1);
-      if(input.right) move.addScaledVector(right, 1);
-
-      if(move.length() > 0.001){
-        move.normalize();
-        const wanted = this.pos.clone().addScaledVector(move, this.speed * dt);
-        if(!checkCollisionCircle(wanted.x, wanted.z, this.radius)) {
-          this.setPosition(wanted.x, wanted.z);
-          this.walkCool += dt;
-          if(this.walkCool > 0.3) {
-            this.walkCool = 0;
-            playFootstep();
-          }
-        }
-      }
-
-      if(this.swingTimer > 0) this.swingTimer = Math.max(0, this.swingTimer - dt);
-      this.applyShake(dt);
-    }
-
-    damage(amount){
-      this.health = Math.max(0, this.health - amount);
-      hudHealth.innerText = `Health: ${this.health}`;
-      this.shake.intensity = 0.12;
-      this.shake.duration = 0.25;
-      if(this.health <= 0){
-        showMessage("You died! Press R to restart.");
-        this.canMove = false;
-      }
-    }
-  }
-
-  /* ----------------------
-     Sword class: swing animation, trail, hit detection
-     ---------------------- */
-  class Sword {
-    constructor(player) {
-      this.player = player;
-      const bladeGeo = new THREE.BoxGeometry(0.08, 1.0, 0.12);
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness:0.8, roughness:0.2 });
-      this.blade = new THREE.Mesh(bladeGeo, bladeMat);
-      this.blade.castShadow = true;
-      this.blade.position.set(0.4, -0.6, -1.0);
-      this.blade.rotation.x = -0.25;
-
-      const handleGeo = new THREE.BoxGeometry(0.12, 0.25, 0.12);
-      const handleMat = new THREE.MeshStandardMaterial({ color: 0x553300, roughness:0.8 });
-      this.handle = new THREE.Mesh(handleGeo, handleMat);
-      this.handle.position.set(0.4, -1.05, -1.0);
-
-      this.group = new THREE.Group();
-      this.group.add(this.blade);
-      this.group.add(this.handle);
-
-      camera.add(this.group);
-      this.group.position.set(0,0,0);
-      this.swinging = false;
-      this.timer = 0;
-      this.cooldown = 0;
-      this.trailPositions = [];
-      this.trailGeo = new THREE.BufferGeometry();
-      const pts = new Float32Array(TRAIL_LENGTH * 3);
-      this.trailGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
-      const trailMat = new THREE.LineBasicMaterial({ color:0xffd080, transparent:true, opacity:0.9 });
-      this.trail = new THREE.Line(this.trailGeo, trailMat);
-      scene.add(this.trail);
-      this._didHit = false;
-    }
-
-    update(dt) {
-      if(this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
-
-      if(this.swinging) {
-        this.timer += dt * 6;
-        const progress = this.timer;
-        const angle = Math.sin(progress) * Math.PI * 0.7;
-        this.group.rotation.set(angle - 0.7, 0.0, 0.0);
-
-        const worldPos = new THREE.Vector3();
-        this.blade.getWorldPosition(worldPos);
-        this.trailPositions.unshift(worldPos.clone());
-        if(this.trailPositions.length > TRAIL_LENGTH) this.trailPositions.pop();
-        this.updateTrailGeometry();
-
-        if(progress > Math.PI * 0.28 && progress < Math.PI * 0.55 && !this._didHit) {
-          this._didHit = true;
-          this.tryHitMonsters(worldPos);
-        }
-
-        if(this.timer > Math.PI) {
-          this.swinging = false;
-          this._didHit = false;
-          this.timer = 0;
-          this.cooldown = SWING_COOLDOWN;
-        }
-      } else {
-        this.group.rotation.x = -0.3 + Math.sin(performance.now() * 0.002) * 0.02;
-        if(this.trailPositions.length > 0) {
-          this.trailPositions.shift();
-          this.updateTrailGeometry();
-        }
-      }
-    }
-
-    startSwing() {
-      if(this.cooldown > 0) return false;
-      this.swinging = true;
-      this.timer = 0.01;
-      this._didHit = false;
-      playSwing();
-      return true;
-    }
-
-    updateTrailGeometry(){
-      const pts = this.trailGeo.attributes.position.array;
-      for(let i=0;i<TRAIL_LENGTH;i++){
-        const p = this.trailPositions[i];
-        const idx = i*3;
-        if(p){
-          pts[idx] = p.x; pts[idx+1] = p.y; pts[idx+2] = p.z;
-        } else {
-          pts[idx] = pts[idx+1] = pts[idx+2] = 0;
-        }
-      }
-      this.trailGeo.attributes.position.needsUpdate = true;
-    }
-
-    tryHitMonsters(worldPos) {
-      const hitRadius = 1.6;
-      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
-      for(let i = monsters.length - 1; i >=0; i--){
-        const mon = monsters[i];
-        const mpos = mon.mesh.position;
-        const toMonster = mpos.clone().sub(camera.position);
-        const dist = toMonster.length();
-        if(dist <= hitRadius) {
-          toMonster.y = 0;
-          toMonster.normalize();
-          const dot = forward.dot(toMonster);
-          if(dot > 0.3) {
-            mon.hit(1 + Math.floor(Math.random()*3));
-            playHit();
-            spawnHitParticles(mpos.x, mpos.y + 0.5, mpos.z);
-            const kb = toMonster.clone().multiplyScalar(-0.8);
-            mon.applyKnockback(kb);
-            if(mon.hp <= 0){
-              scene.remove(mon.mesh);
-              monsters.splice(i,1);
-              hudMonsters.innerText = `Monsters: ${monsters.length}`;
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback, useRef } = React;
+        const { motion, AnimatePresence } = window.Motion;
+        // --- ICONS ---
+        const Icon = ({ name, size = 24, className, ...props }) => {
+            const iconData = lucide.icons[name];
+            if (!iconData) return null;
+            return (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+                    {iconData.map((child, index) => {
+                        const [tag, attrs] = child;
+                        return React.createElement(tag, { ...attrs, key: index });
+                    })}
+                </svg>
+            );
+        };
+        const Zap = (p) => <Icon name="Zap" {...p} />;
+        const Clock = (p) => <Icon name="Clock" {...p} />;
+        const Eye = (p) => <Icon name="Eye" {...p} />;
+        const Ghost = (p) => <Icon name="Ghost" {...p} />;
+        const Box = (p) => <Icon name="Box" {...p} />;
+        const Triangle = (p) => <Icon name="Triangle" {...p} />;
+        const Circle = (p) => <Icon name="Circle" {...p} />;
+        const Sword = (p) => <Icon name="Sword" {...p} />;
+        const Star = (p) => <Icon name="Star" {...p} />;
+        const Crown = (p) => <Icon name="Crown" {...p} />;
+        const Snowflake = (p) => <Icon name="Snowflake" {...p} />;
+        const Footprints = (p) => <Icon name="Footprints" {...p} />;
+        const Gem = (p) => <Icon name="Gem" {...p} />;
+        const Heart = (p) => <Icon name="Heart" {...p} />;
+        const Moon = (p) => <Icon name="Moon" {...p} />;
+        const Sun = (p) => <Icon name="Sun" {...p} />;
+        const Flame = (p) => <Icon name="Flame" {...p} />;
+        const Skull = (p) => <Icon name="Skull" {...p} />;
+        const Trophy = (p) => <Icon name="Trophy" {...p} />;
+        const Timer = (p) => <Icon name="Timer" {...p} />;
+        const RefreshCw = (p) => <Icon name="RefreshCw" {...p} />;
+        const ArrowLeft = (p) => <Icon name="ArrowLeft" {...p} />;
+        const Lock = (p) => <Icon name="Lock" {...p} />;
+        const Unlock = (p) => <Icon name="Unlock" {...p} />;
+        const ShieldAlert = (p) => <Icon name="ShieldAlert" {...p} />;
+        const Palette = (p) => <Icon name="Palette" {...p} />;
+        const SkipForward = (p) => <Icon name="SkipForward" {...p} />;
+        const Package = (p) => <Icon name="Package" {...p} />;
+        const ShoppingCart = (p) => <Icon name="ShoppingCart" {...p} />;
+        const Coins = (p) => <Icon name="Coins" {...p} />;
+        const X = (p) => <Icon name="X" {...p} />;
+        const Ticket = (p) => <Icon name="Ticket" {...p} />;
+        const Play = (p) => <Icon name="Play" {...p} />;
+        const ChevronUp = (p) => <Icon name="ChevronUp" {...p} />;
+        const ChevronDown = (p) => <Icon name="ChevronDown" {...p} />;
+        const ChevronLeft = (p) => <Icon name="ChevronLeft" {...p} />;
+        const ChevronRight = (p) => <Icon name="ChevronRight" {...p} />;
+        const Volume2 = (p) => <Icon name="Volume2" {...p} />;
+        const VolumeX = (p) => <Icon name="VolumeX" {...p} />;
+        // --- AUDIO SYSTEM ---
+        const useMusic = (enabled) => {
+            const audioCtxRef = useRef(null);
+            const intervalRef = useRef(null);
+            const isPlayingRef = useRef(false);
+            useEffect(() => {
+                if (enabled && !audioCtxRef.current) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) {
+                        try {
+                            audioCtxRef.current = new AudioContext();
+                        } catch(e) {
+                            console.error("AudioContext not supported", e);
+                        }
+                    }
+                }
+                
+                const playNote = (freq, type, duration, time, vol = 0.1) => {
+                    if (!audioCtxRef.current) return;
+                    try {
+                        const osc = audioCtxRef.current.createOscillator();
+                        const gain = audioCtxRef.current.createGain();
+                        
+                        osc.type = type;
+                        osc.frequency.value = freq;
+                        
+                        osc.connect(gain);
+                        gain.connect(audioCtxRef.current.destination);
+                        
+                        gain.gain.setValueAtTime(0, time);
+                        gain.gain.linearRampToValueAtTime(vol, time + 0.01);
+                        gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+                        
+                        osc.start(time);
+                        osc.stop(time + duration);
+                    } catch(e) {
+                        console.error("Error playing note", e);
+                    }
+                };
+                const startSequencer = () => {
+                    if (!audioCtxRef.current || isPlayingRef.current) return;
+                    isPlayingRef.current = true;
+                    
+                    let step = 0;
+                    const tempo = 110;
+                    const lookahead = 25.0;
+                    const scheduleAheadTime = 0.1;
+                    // Ensure currentTime is available
+                    let nextNoteTime = audioCtxRef.current.currentTime;
+                    const bassLine = [65.41, 65.41, 77.78, 87.31]; // C2, C2, D#2, F2
+                    const arpLine = [261.63, 311.13, 392.00, 523.25]; // C4, D#4, G4, C5
+                    const scheduler = () => {
+                        // Safety check if audio context was closed
+                        if (!audioCtxRef.current) return;
+                        
+                        while (nextNoteTime < audioCtxRef.current.currentTime + scheduleAheadTime) {
+                            // Bass - 8th notes
+                            const bassFreq = bassLine[Math.floor(step / 4) % 4];
+                            playNote(bassFreq, 'sawtooth', 0.2, nextNoteTime, 0.15);
+                            
+                            // Arp - 16th notes
+                            if (step % 2 === 0) {
+                                const arpFreq = arpLine[Math.floor(step / 2) % 4];
+                                playNote(arpFreq, 'square', 0.1, nextNoteTime, 0.05);
+                            }
+                            
+                            // Kick-ish
+                            if (step % 4 === 0) {
+                                playNote(50, 'sine', 0.1, nextNoteTime, 0.3);
+                            }
+                            
+                            // Snare-ish noise (simulated with high tri)
+                            if (step % 4 === 2) {
+                                playNote(150, 'triangle', 0.05, nextNoteTime, 0.1);
+                            }
+                            const secondsPerBeat = 60.0 / tempo;
+                            nextNoteTime += 0.25 * secondsPerBeat; // 16th notes
+                            step++;
+                        }
+                        intervalRef.current = setTimeout(scheduler, lookahead);
+                    };
+                    
+                    if (audioCtxRef.current.state === 'suspended') {
+                        audioCtxRef.current.resume().catch(e => console.error("Resume failed", e));
+                    }
+                    scheduler();
+                };
+                const stopSequencer = () => {
+                    if (intervalRef.current) clearTimeout(intervalRef.current);
+                    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+                         audioCtxRef.current.suspend().catch(e => console.error("Suspend failed", e));
+                    }
+                    isPlayingRef.current = false;
+                };
+                if (enabled) {
+                    startSequencer();
+                } else {
+                    stopSequencer();
+                }
+                return () => stopSequencer();
+            }, [enabled]);
+        };
+        // --- UI COMPONENTS ---
+        const Button = ({ children, className, variant = "default", size = "default", ...props }) => {
+            const baseStyles = "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+            const variants = {
+                default: "bg-white text-black hover:bg-gray-200",
+                destructive: "bg-red-900 text-white hover:bg-red-800",
+                outline: "border border-input bg-transparent hover:bg-accent hover:text-accent-foreground",
+                secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                ghost: "hover:bg-accent hover:text-accent-foreground",
+            };
+            const sizes = { default: "h-9 px-4 py-2", sm: "h-8 rounded-md px-3 text-xs", lg: "h-10 rounded-md px-8", icon: "h-9 w-9" };
+            return <button className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`} {...props}>{children}</button>;
+        };
+        const Card = ({ className, ...props }) => <div className={`rounded-xl border bg-card text-card-foreground shadow ${className}`} {...props} />;
+        const Input = ({ className, ...props }) => <input className={`flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${className}`} {...props} />;
+        const Switch = ({ checked, onCheckedChange, className }) => (
+            <button role="switch" aria-checked={checked} onClick={() => onCheckedChange(!checked)} className={`peer inline-flex h-[20px] w-[36px] shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 ${checked ? 'bg-green-500' : 'bg-gray-700'} ${className}`}>
+                <span className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${checked ? 'translate-x-4 bg-white' : 'translate-x-0 bg-white'}`} />
+            </button>
+        );
+        // Fixed Modal Component
+        const Modal = ({ open, onClose, children, className }) => {
+            if (!open) return null;
+            return (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className={`relative w-full max-w-lg animate-in zoom-in-95 duration-200 bg-black border border-gray-700 p-6 shadow-lg sm:rounded-lg ${className}`} onClick={(e) => e.stopPropagation()}>
+                        {children}
+                        <button onClick={onClose} className="absolute right-4 top-4 opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none text-white">
+                            <X size={16} /><span className="sr-only">Close</span>
+                        </button>
+                    </div>
+                    <div className="absolute inset-0 -z-10" onClick={onClose}></div>
+                </div>
+            );
+        };
+        const ModalHeader = ({ className, ...props }) => <div className={`flex flex-col space-y-1.5 text-center sm:text-left mb-4 ${className}`} {...props} />;
+        const ModalTitle = ({ className, ...props }) => <h2 className={`text-lg font-semibold leading-none tracking-tight ${className}`} {...props} />;
+        const ModalDescription = ({ className, ...props }) => <p className={`text-sm text-muted-foreground mt-2 ${className}`} {...props} />;
+        // Toast System
+        const ToastContext = React.createContext({});
+        const useToast = () => React.useContext(ToastContext);
+        const Toaster = () => {
+            const { toasts } = useToast();
+            return (
+                <div className="fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]">
+                    {toasts.map(t => (
+                        <div key={t.id} className={`group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-md border p-6 pr-8 shadow-lg transition-all ${t.className || 'bg-background text-foreground'}`}>
+                            <div className="grid gap-1">
+                                {t.title && <div className="text-sm font-semibold">{t.title}</div>}
+                                {t.description && <div className="text-sm opacity-90">{t.description}</div>}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+        // --- MAZE LOGIC ---
+        function generateMaze(width, height) {
+            const grid = [];
+            for (let y = 0; y < height; y++) {
+                const row = [];
+                for (let x = 0; x < width; x++) { row.push({ x, y, top: true, right: true, bottom: true, left: true, visited: false }); }
+                grid.push(row);
             }
-          }
+            const stack = [];
+            const start = grid[0][0];
+            start.visited = true;
+            stack.push(start);
+            function getUnvisitedNeighbors(cell) {
+                const neighbors = [];
+                const { x, y } = cell;
+                if (y > 0 && !grid[y - 1][x].visited) neighbors.push(grid[y - 1][x]);
+                if (x < width - 1 && !grid[y][x + 1].visited) neighbors.push(grid[y][x + 1]);
+                if (y < height - 1 && !grid[y + 1][x].visited) neighbors.push(grid[y + 1][x]);
+                if (x > 0 && !grid[y][x - 1].visited) neighbors.push(grid[y][x - 1]);
+                return neighbors;
+            }
+            function removeWalls(a, b) {
+                const xDiff = a.x - b.x;
+                const yDiff = a.y - b.y;
+                if (xDiff === 1) { a.left = false; b.right = false; } else if (xDiff === -1) { a.right = false; b.left = false; }
+                if (yDiff === 1) { a.top = false; b.bottom = false; } else if (yDiff === -1) { a.bottom = false; b.top = false; }
+            }
+            while (stack.length > 0) {
+                const current = stack[stack.length - 1];
+                const neighbors = getUnvisitedNeighbors(current);
+                if (neighbors.length > 0) {
+                    const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    removeWalls(current, next);
+                    next.visited = true;
+                    stack.push(next);
+                } else { stack.pop(); }
+            }
+            const itemCount = Math.max(1, Math.floor((width * height) / 40));
+            for (let i = 0; i < itemCount; i++) {
+                let placed = false;
+                let attempts = 0;
+                while (!placed && attempts < 100) {
+                    const x = Math.floor(Math.random() * width);
+                    const y = Math.floor(Math.random() * height);
+                    if ((x === 0 && y === 0) || (x === width - 1 && y === height - 1)) continue;
+                    if (grid[y][x].item) continue;
+                    const rand = Math.random();
+                    if (rand < 0.25) grid[y][x].item = 'speed';
+                    else if (rand < 0.5) grid[y][x].item = 'time';
+                    else if (rand < 0.7) grid[y][x].item = 'vision';
+                    else if (rand < 0.85) grid[y][x].item = 'ghost';
+                    else grid[y][x].item = 'freeze';
+                    placed = true;
+                    attempts++;
+                }
+            }
+            return grid;
         }
-      }
-    }
-  }
-
-  /* ----------------------
-     Monster class
-     ---------------------- */
-  class Monster {
-    constructor(x,z) {
-      const geo = new THREE.BoxGeometry(CELL*0.4, CELL*0.9, CELL*0.4);
-      const mat = new THREE.MeshStandardMaterial({ map: monsterTex, color: 0xff6666, roughness: 0.8, metalness:0.1 });
-      this.mesh = new THREE.Mesh(geo, mat);
-      this.mesh.castShadow = true;
-      this.mesh.position.set(x, 0.45, z);
-      scene.add(this.mesh);
-
-      const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
-      const eyeMat = new THREE.MeshBasicMaterial({ color:0xff9933 });
-      this.eye = new THREE.Mesh(eyeGeo, eyeMat);
-      this.eye.position.set(0, 0.45, 0.26);
-      this.mesh.add(this.eye);
-
-      this.hp = 3 + Math.floor(Math.random()*3);
-      this.speed = MONSTER_SPEED * (0.8 + Math.random()*0.6);
-      this.knockback = new THREE.Vector3();
-      this.knockTimer = 0;
-    }
-
-    update(dt) {
-      this.mesh.position.y = 0.45 + Math.sin(performance.now() * 0.002 + (this.mesh.position.x + this.mesh.position.z)) * 0.06;
-      const glow = 0.5 + Math.abs(Math.sin(performance.now()*0.003 + this.mesh.position.x)) * 0.6;
-      this.eye.material.color.setScalar(1.0);
-      this.eye.material.needsUpdate = true;
-      this.eye.scale.set(1,1,1).multiplyScalar(1 + (glow-0.5)*0.15);
-
-      const toPlayer = camera.position.clone().sub(this.mesh.position);
-      toPlayer.y = 0;
-      const dist = toPlayer.length();
-      if(this.knockTimer > 0){
-        this.mesh.position.addScaledVector(this.knockback, dt);
-        this.knockTimer -= dt;
-        if(this.knockTimer <= 0) this.knockback.set(0,0,0);
-        return;
-      }
-      if(dist > 1.6) {
-        toPlayer.normalize();
-        const wanted = this.mesh.position.clone().addScaledVector(toPlayer, this.speed * dt);
-        if(!checkCollisionCircle(wanted.x, wanted.z, 0.35)){
-          this.mesh.position.copy(wanted);
+        function solveMaze(grid, start, end) {
+            const queue = [];
+            const visited = new Set();
+            queue.push({ ...start, path: [start] });
+            visited.add(`${start.x},${start.y}`);
+            while (queue.length > 0) {
+                const { x, y, path } = queue.shift();
+                if (x === end.x && y === end.y) return path;
+                const current = grid[y][x];
+                const neighbors = [];
+                if (!current.top && y > 0) neighbors.push({ x, y: y - 1 });
+                if (!current.bottom && y < grid.length - 1) neighbors.push({ x, y: y + 1 });
+                if (!current.left && x > 0) neighbors.push({ x: x - 1, y });
+                if (!current.right && x < grid[0].length - 1) neighbors.push({ x: x + 1, y });
+                for (const n of neighbors) {
+                    const key = `${n.x},${n.y}`;
+                    if (!visited.has(key)) {
+                        visited.add(key);
+                        queue.push({ x: n.x, y: n.y, path: [...path, n] });
+                    }
+                }
+            }
+            return [];
         }
-      } else {
-        if(Math.random() < dt * 0.25) {
-          player.damage(6 + Math.floor(Math.random()*5));
+        const SKIN_RARITIES = {
+            'orb': 'Common', 'cube': 'Common', 'triangle': 'Common',
+            'diamond': 'Uncommon', 'heart': 'Uncommon',
+            'star': 'Rare', 'moon': 'Rare',
+            'lightning': 'Epic', 'sun': 'Epic',
+            'crown': 'Legendary', 'skull': 'Legendary',
+            'ghost': 'Mythic', 'flame': 'Mythic',
+            'slayer': 'Special', 'ninja': 'Special', 'master': 'Special'
+        };
+        function MazeRenderer({ maze, cellSize, playerPos, solutionPath, isSpeedActive, skin = 'orb' }) {
+            const width = maze[0].length * cellSize;
+            const height = maze.length * cellSize;
+            const paths = useMemo(() => {
+                const wallPaths = [];
+                maze.forEach((row) => {
+                    row.forEach((cell) => {
+                        const x = cell.x * cellSize;
+                        const y = cell.y * cellSize;
+                        if (cell.top) wallPaths.push(`M${x},${y} L${x + cellSize},${y}`);
+                        if (cell.left) wallPaths.push(`M${x},${y} L${x},${y + cellSize}`);
+                        if (cell.right && cell.x === maze[0].length - 1) wallPaths.push(`M${x + cellSize},${y} L${x + cellSize},${y + cellSize}`);
+                        if (cell.bottom && cell.y === maze.length - 1) wallPaths.push(`M${x},${y + cellSize} L${x + cellSize},${y + cellSize}`);
+                    });
+                });
+                return wallPaths.join(" ");
+            }, [maze, cellSize]);
+            const solutionPathD = useMemo(() => {
+                if (!solutionPath || solutionPath.length === 0) return "";
+                return solutionPath.map((p, i) => {
+                    const x = p.x * cellSize + cellSize / 2;
+                    const y = p.y * cellSize + cellSize / 2;
+                    return `${i === 0 ? 'M' : 'L'}${x},${y}`;
+                }).join(" ");
+            }, [solutionPath, cellSize]);
+            const renderPlayerSkin = () => {
+                const commonProps = { className: "text-neon-pink drop-shadow-[0_0_8px_rgba(236,72,153,0.8)]", size: cellSize * 0.7, strokeWidth: 2.5 };
+                switch (skin) {
+                    case 'cube': return <Box {...commonProps} className="text-neon-cyan drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" />;
+                    case 'triangle': return <Triangle {...commonProps} className="text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]" />;
+                    case 'diamond': return <Gem {...commonProps} className="text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.8)]" />;
+                    case 'heart': return <Heart {...commonProps} className="text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.8)]" />;
+                    case 'star': return <Star {...commonProps} className="text-purple-400 drop-shadow-[0_0_8px_rgba(192,132,252,0.8)]" />;
+                    case 'moon': return <Moon {...commonProps} className="text-indigo-300 drop-shadow-[0_0_8px_rgba(165,180,252,0.8)]" />;
+                    case 'lightning': return <Zap {...commonProps} className="text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.8)]" />;
+                    case 'sun': return <Sun {...commonProps} className="text-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.8)]" />;
+                    case 'crown': return <Crown {...commonProps} className="text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.8)]" />;
+                    case 'skull': return <Skull {...commonProps} className="text-gray-200 drop-shadow-[0_0_8px_rgba(229,231,235,0.8)]" />;
+                    case 'ghost': return <Ghost {...commonProps} className="text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)] opacity-80" />;
+                    case 'flame': return <Flame {...commonProps} className="text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse" />;
+                    case 'slayer': return <Sword {...commonProps} className="text-red-600 drop-shadow-[0_0_8px_rgba(220,38,38,0.8)]" />;
+                    case 'ninja': return <Star {...commonProps} className="text-purple-600 drop-shadow-[0_0_8px_rgba(147,51,234,0.8)]" />;
+                    case 'master': return <Crown {...commonProps} className="text-amber-500 drop-shadow-[0_0_8px_rgba(245,158,11,0.8)]" />;
+                    default: return <Circle {...commonProps} fill="currentColor" className="text-neon-pink drop-shadow-[0_0_8px_rgba(236,72,153,0.8)]" />;
+                }
+            };
+            return (
+                <div className={`relative rounded-lg border-2 transition-colors duration-300 ${isSpeedActive ? 'border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.5)]' : 'border-neon-cyan shadow-[0_0_20px_rgba(0,255,255,0.3)]'} bg-black/50 p-4 backdrop-blur-sm`}>
+                    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
+                        <defs><filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2" result="blur" /><feComposite in="SourceGraphic" in2="blur" operator="over" /></filter></defs>
+                        <AnimatePresence>
+                            {solutionPathD && <motion.path initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }} exit={{ opacity: 0 }} d={solutionPathD} stroke="hsl(142, 70%, 50%)" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#glow)" className="pointer-events-none" />}
+                        </AnimatePresence>
+                        <path d={paths} stroke="hsl(180, 100%, 50%)" strokeWidth="2" fill="none" strokeLinecap="round" filter="url(#glow)" className="opacity-80" />
+                        {maze.map((row, y) => row.map((cell, x) => {
+                            if (!cell.item) return null;
+                            const cx = x * cellSize + cellSize / 2;
+                            const cy = y * cellSize + cellSize / 2;
+                            const size = cellSize * 0.6;
+                            return (
+                                <g key={`item-${x}-${y}`} transform={`translate(${cx - size/2}, ${cy - size/2})`}>
+                                    {cell.item === 'speed' && <Zap size={size} className="text-blue-400 animate-pulse" strokeWidth={3} />}
+                                    {cell.item === 'time' && <Clock size={size} className="text-yellow-400 animate-bounce" strokeWidth={3} />}
+                                    {cell.item === 'vision' && <Eye size={size} className="text-green-400 animate-pulse" strokeWidth={3} />}
+                                    {cell.item === 'ghost' && <Footprints size={size} className="text-purple-400 animate-pulse" strokeWidth={3} />}
+                                    {cell.item === 'freeze' && <Snowflake size={size} className="text-cyan-200 animate-spin-slow" strokeWidth={3} />}
+                                </g>
+                            );
+                        }))}
+                        <rect x={(maze[0].length - 1) * cellSize + 4} y={(maze.length - 1) * cellSize + 4} width={cellSize - 8} height={cellSize - 8} fill="hsl(270, 100%, 60%)" className="animate-pulse" filter="url(#glow)" />
+                        <motion.g initial={false} animate={{ x: playerPos.x * cellSize + cellSize / 2 - (cellSize * 0.7) / 2, y: playerPos.y * cellSize + cellSize / 2 - (cellSize * 0.7) / 2 }} transition={{ type: "spring", stiffness: isSpeedActive ? 1500 : 500, damping: isSpeedActive ? 15 : 30, mass: isSpeedActive ? 0.5 : 1 }}>
+                            {renderPlayerSkin()}
+                        </motion.g>
+                    </svg>
+                </div>
+            );
         }
-      }
-    }
-
-    hit(dmg) {
-      this.hp -= dmg;
-      this.mesh.material.color.setHex(0xff4444);
-      setTimeout(()=> {
-        this.mesh.material.color.setHex(0xff6666);
-      }, 120);
-    }
-
-    applyKnockback(vec) {
-      this.knockback.copy(vec);
-      this.knockTimer = 0.15 + Math.random()*0.08;
-    }
-  }
-
-  /* ----------------------
-     Effects: particle system for hits
-     ---------------------- */
-  function spawnHitParticles(x,y,z) {
-    const particleCount = 18 + Math.floor(Math.random()*12);
-    const geom = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const velocities = [];
-    for(let i=0;i<particleCount;i++){
-      positions[i*3] = x;
-      positions[i*3+1] = y;
-      positions[i*3+2] = z;
-      const v = new THREE.Vector3((Math.random()*2-1)*1.8, Math.random()*1.6, (Math.random()*2-1)*1.8);
-      velocities.push(v);
-    }
-    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({ size: 0.08, color: 0xffd0a6, transparent:true });
-    const pts = new THREE.Points(geom, material);
-    pts._velocities = velocities;
-    pts._life = 0.8 + Math.random()*0.5;
-    scene.add(pts);
-    particles.push(pts);
-  }
-
-  function updateParticles(dt) {
-    for(let i=particles.length-1;i>=0;i--){
-      const p = particles[i];
-      p._life -= dt;
-      const pos = p.geometry.attributes.position.array;
-      for(let j=0;j<pos.length/3;j++){
-        pos[j*3] += p._velocities[j].x * dt;
-        pos[j*3+1] += p._velocities[j].y * dt;
-        pos[j*3+2] += p._velocities[j].z * dt;
-        p._velocities[j].y -= 3.5 * dt;
-        p._velocities[j].multiplyScalar(0.995);
-      }
-      p.geometry.attributes.position.needsUpdate = true;
-      p.material.opacity = Math.max(0, p._life / 1.0);
-      if(p._life <= 0) {
-        scene.remove(p);
-        particles.splice(i,1);
-      }
-    }
-  }
-
-  /* ----------------------
-     Collision helpers (circle vs grid wall)
-     ---------------------- */
-  function checkCollisionCircle(wx, wz, radius) {
-    for(const w of walls){
-      const mx = w.mesh.position.x;
-      const mz = w.mesh.position.z;
-      const dx = wx - mx;
-      const dz = wz - mz;
-      const half = CELL*0.5 * 0.9;
-      const closestX = Math.max(-half, Math.min(half, dx));
-      const closestZ = Math.max(-half, Math.min(half, dz));
-      const ox = dx - closestX;
-      const oz = dz - closestZ;
-      const dist2 = ox*ox + oz*oz;
-      if(dist2 < (radius*radius)) return true;
-    }
-    return false;
-  }
-
-  /* ----------------------
-     Input & Pointer Lock
-     ---------------------- */
-  const input = { forward:false, back:false, left:false, right:false };
-
-  window.addEventListener('keydown', (e) => {
-    if(e.code === 'KeyW') input.forward = true;
-    if(e.code === 'KeyS') input.back = true;
-    if(e.code === 'KeyA') input.left = true;
-    if(e.code === 'KeyD') input.right = true;
-    if(e.code === 'KeyR') restart();
-  });
-  window.addEventListener('keyup', (e) => {
-    if(e.code === 'KeyW') input.forward = false;
-    if(e.code === 'KeyS') input.back = false;
-    if(e.code === 'KeyA') input.left = false;
-    if(e.code === 'KeyD') input.right = false;
-  });
-
-  // Mouse look via pointer lock
-  let pointerLocked = false;
-  renderer.domElement.style.cursor = 'pointer';
-  renderer.domElement.addEventListener('click', () => {
-    renderer.domElement.requestPointerLock();
-  });
-  document.addEventListener('pointerlockchange', () => {
-    pointerLocked = document.pointerLockElement === renderer.domElement;
-    renderer.domElement.style.cursor = pointerLocked ? 'none' : 'pointer';
-  });
-
-  // track yaw/pitch global variables
-  window.addEventListener('mousemove', (e) => {
-    if(!pointerLocked) return;
-    const sensitivity = 0.0024;
-    yaw -= e.movementX * sensitivity;
-    pitch -= e.movementY * sensitivity;
-    pitch = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, pitch));
-    camera.rotation.set(pitch, yaw, 0);
-  });
-
-  // click to swing
-  window.addEventListener('mousedown', (e) => {
-    if(!pointerLocked) return;
-    if(e.button === 0) {
-      const started = sword.startSwing();
-      if(started){
-        player.shake.intensity = 0.02;
-        player.shake.duration = 0.08;
-      }
-    }
-  });
-
-  // instantiate player & sword
-  const player = new Player(camera);
-  player.setPosition(offsets.offsetX + CELL, offsets.offsetZ + CELL);
-
-  const sword = new Sword(player);
-
-  // Spawn monsters at free cells
-  function pickFreeCell() {
-    while(true){
-      const x = Math.floor(Math.random() * (maze.w - 2)) + 1;
-      const z = Math.floor(Math.random() * (maze.h - 2)) + 1;
-      if(maze.grid[z][x] === '.') {
-        const wx = offsets.offsetX + x*CELL;
-        const wz = offsets.offsetZ + z*CELL;
-        if(Math.hypot(wx - player.pos.x, wz - player.pos.z) > CELL * 3) {
-          return {x:wx, z:wz};
+        const CELL_SIZE = 25;
+        const INITIAL_TIME = 30;
+        const ADMIN_CODE = "sussybaka120956";
+        function Game() {
+            const { toast } = useToast();
+            const [gameStarted, setGameStarted] = useState(false);
+            const [level, setLevel] = useState(1);
+            const [maze, setMaze] = useState([]);
+            const [playerPos, setPlayerPos] = useState({ x: 0, y: 0 });
+            const [timeLeft, setTimeLeft] = useState(INITIAL_TIME);
+            const [gameState, setGameState] = useState("playing");
+            const [solutionPath, setSolutionPath] = useState(undefined);
+            const [isSpeedActive, setIsSpeedActive] = useState(false);
+            const [isGhostActive, setIsGhostActive] = useState(false);
+            const [isTimeFrozenPowerup, setIsTimeFrozenPowerup] = useState(false);
+            const [isVisionPowerupActive, setIsVisionPowerupActive] = useState(false);
+            const [activeSkin, setActiveSkin] = useState('orb');
+            const [unlockedSkins, setUnlockedSkins] = useState(['orb']); 
+            const [packsAvailable, setPacksAvailable] = useState(0);
+            const [isOpeningPack, setIsOpeningPack] = useState(false);
+            const [openingStage, setOpeningStage] = useState('ready');
+            const [packResult, setPackResult] = useState(null);
+            const [coins, setCoins] = useState(0);
+            const [isShopOpen, setIsShopOpen] = useState(false);
+            const [isAdminOpen, setIsAdminOpen] = useState(false);
+            const [isSkinsOpen, setIsSkinsOpen] = useState(false);
+            const [adminPassword, setAdminPassword] = useState("");
+            const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+            const [isTimeFrozen, setIsTimeFrozen] = useState(false);
+            const [isVisionUnlimited, setIsVisionUnlimited] = useState(false);
+            const [showCutscene, setShowCutscene] = useState(false);
+            const [storyState, setStoryState] = useState('intro');
+            const [storyStep, setStoryStep] = useState(0);
+            const [musicEnabled, setMusicEnabled] = useState(false);
+            // Start music when game starts
+            useMusic(musicEnabled && gameStarted);
+            const introDialog = [ "Welcome, little dot...", "I am the ARCHITECT of the STONE LABYRINTH.", "You seem lost. Good.", "Escape is impossible, but you are welcome to try.", "Survive my trials, and perhaps I will let you leave...", "BEGIN!" ];
+            const level25Dialog = [ "IMPRESSIVE...", "You actually survived this long?", "But your luck ends HERE.", "I'm done playing fair.", "Let's see how you handle... TRUE CHAOS!", "DIE!" ];
+            const victoryDialog = [ "NO...", "IMPOSSIBLE!", "My masterpiece... RUINED!", "You have bested me, anomaly.", "The labyrinth is yours.", "Begone." ];
+            const currentDialog = storyState === 'intro' ? introDialog : storyState === 'level25_intro' ? level25Dialog : victoryDialog;
+            const advanceStory = () => {
+                if (storyStep < currentDialog.length - 1) { setStoryStep(s => s + 1); }
+                else {
+                    setStoryState('none'); setStoryStep(0);
+                    if (storyState === 'intro') setGameState("playing");
+                    else if (storyState === 'level25_intro') setGameState("playing");
+                    else if (storyState === 'victory') setGameState("won");
+                }
+            };
+            useEffect(() => {
+                if ((isVisionUnlimited || isVisionPowerupActive) && maze.length > 0) {
+                    const path = solveMaze(maze, playerPos, {x: maze[0].length-1, y: maze.length-1});
+                    setSolutionPath(path);
+                } else {
+                    setSolutionPath(undefined);
+                }
+            }, [isVisionUnlimited, isVisionPowerupActive, playerPos, maze]);
+            useEffect(() => {
+                if (!gameStarted) return;
+                if (level === 25 && gameState === "playing" && storyState === 'none') {
+                    const chaosInterval = setInterval(() => {
+                        setMaze(prev => {
+                            const newMaze = generateMaze(prev[0].length, prev.length);
+                            const { x, y } = playerPos;
+                            if (newMaze[y] && newMaze[y][x]) {
+                                newMaze[y][x].top = false; newMaze[y][x].bottom = false;
+                                newMaze[y][x].left = false; newMaze[y][x].right = false;
+                                if (y > 0) newMaze[y-1][x].bottom = false; if (y < newMaze.length-1) newMaze[y+1][x].top = false;
+                                if (x > 0) newMaze[y][x-1].right = false; if (x < newMaze[0].length-1) newMaze[y][x+1].left = false;
+                            }
+                            toast({ title: "REALITY SHIFT!", description: "The Architect is warping the maze!", className: "bg-red-950 border-red-500 text-red-100 animate-pulse" });
+                            return newMaze;
+                        });
+                    }, 8000);
+                    return () => clearInterval(chaosInterval);
+                }
+            }, [level, gameState, storyState, playerPos, gameStarted]);
+            const initLevel = useCallback((lvl) => {
+                const isBossLevel = lvl % 5 === 0;
+                let width, height;
+                if (isBossLevel) {
+                    width = 30; height = 20;
+                    if (lvl === 25) { setStoryState('level25_intro'); toast({ title: "⚠️ ANOMALY DETECTED ⚠️", description: "The Architect is intervening...", className: "bg-red-950 border-red-500 text-red-100 font-bold animate-bounce" }); }
+                    else { toast({ title: "⚠️ BOSS LEVEL ⚠️", description: "Survive the massive labyrinth!", className: "bg-red-950 border-red-500 text-red-100 font-bold" }); }
+                } else {
+                    width = Math.min(10 + lvl * 2, 30); height = Math.min(10 + lvl * 2, 20);
+                    if (lvl % 6 === 0 && lvl !== 25 && lvl > 1) {
+                        const taunts = [ "Still alive? How tedious.", "I'm just warming up.", "You run like a scared mouse.", "This maze has no end, fool.", "Do you really think you can escape?", "My patience is wearing thin." ];
+                        const randomTaunt = taunts[Math.floor(Math.random() * taunts.length)];
+                        toast({ title: "ARCHITECT:", description: `"${randomTaunt}"`, className: "bg-gray-900 border-purple-500 text-purple-200 font-mono" });
+                    }
+                }
+                setMaze(generateMaze(width, height)); setPlayerPos({ x: 0, y: 0 });
+                let newTimeLimit;
+                if (lvl <= 3) newTimeLimit = 50; else if (lvl <= 7) newTimeLimit = 60; else newTimeLimit = 110;
+                setTimeLeft(newTimeLimit); setGameState("playing"); setSolutionPath(undefined);
+                setIsSpeedActive(false); setIsGhostActive(false); setIsTimeFrozenPowerup(false); setIsVisionPowerupActive(false);
+                setIsTimeFrozen(false); setIsVisionUnlimited(false); setShowCutscene(false);
+            }, []);
+            useEffect(() => { if (gameStarted) initLevel(level); }, [level, initLevel, gameStarted]);
+            useEffect(() => {
+                if (!gameStarted) return;
+                if (gameState !== "playing") return;
+                if (isTimeFrozen || isTimeFrozenPowerup || storyState !== 'none') return;
+                const timer = setInterval(() => { setTimeLeft((t) => { if (t <= 1) { setGameState("lost"); return 0; } return t - 1; }); }, 1000);
+                return () => clearInterval(timer);
+            }, [gameState, isTimeFrozen, isTimeFrozenPowerup, storyState, gameStarted]);
+            // Core movement logic refactored for reuse
+            const movePlayer = useCallback((direction) => {
+                if (gameState !== "playing" || showCutscene) return;
+                
+                const { x, y } = playerPos;
+                const currentCell = maze[y][x];
+                let nextX = x, nextY = y;
+                const canMove = (dir) => isGhostActive || !currentCell[dir];
+                if (direction === 'up' && canMove('top')) nextY--;
+                if (direction === 'right' && canMove('right')) nextX++;
+                if (direction === 'down' && canMove('bottom')) nextY++;
+                if (direction === 'left' && canMove('left')) nextX--;
+                if (nextY < 0 || nextY >= maze.length || nextX < 0 || nextX >= maze[0].length) return;
+                
+                if (nextX !== x || nextY !== y) {
+                    setPlayerPos({ x: nextX, y: nextY });
+                    const nextCell = maze[nextY][nextX];
+                    if (nextCell.item) {
+                        if (nextCell.item === 'time') { setTimeLeft(t => t + 5); toast({ title: "Time Extended!", description: "+5 Seconds added", className: "bg-yellow-900 border-yellow-500 text-yellow-100" }); }
+                        else if (nextCell.item === 'speed') { setIsSpeedActive(true); setTimeout(() => setIsSpeedActive(false), 5000); toast({ title: "Speed Boost!", description: "Super fast movement!", className: "bg-blue-900 border-blue-500 text-blue-100" }); }
+                        else if (nextCell.item === 'vision') { setIsVisionPowerupActive(true); setTimeout(() => setIsVisionPowerupActive(false), 3000); toast({ title: "Path Revealed!", description: "Showing optimal path", className: "bg-green-900 border-green-500 text-green-100" }); }
+                        else if (nextCell.item === 'ghost') { setIsGhostActive(true); setTimeout(() => setIsGhostActive(false), 5000); toast({ title: "Ghost Mode!", description: "Walk through walls!", className: "bg-purple-900 border-purple-500 text-purple-100" }); }
+                        else if (nextCell.item === 'freeze') { setIsTimeFrozenPowerup(true); setTimeout(() => setIsTimeFrozenPowerup(false), 10000); toast({ title: "Time Freeze!", description: "Timer stopped for 10s!", className: "bg-cyan-900 border-cyan-500 text-cyan-100" }); }
+                        const newMaze = [...maze];
+                        newMaze[nextY][nextX] = { ...nextCell, item: undefined };
+                        setMaze(newMaze);
+                    }
+                    if (nextX === maze[0].length - 1 && nextY === maze.length - 1) {
+                        if (level === 25) setStoryState('victory');
+                        else { 
+                            setGameState("won");
+                        }
+                    }
+                }
+            }, [maze, gameState, showCutscene, playerPos, isGhostActive, level]);
+            useEffect(() => {
+                if (!gameStarted) return;
+                const handleKeyDown = (e) => {
+                    if (document.activeElement?.tagName === "INPUT") return;
+                    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) e.preventDefault();
+                    
+                    if (e.key === "ArrowUp" || e.key === "w") movePlayer('up');
+                    if (e.key === "ArrowRight" || e.key === "d") movePlayer('right');
+                    if (e.key === "ArrowDown" || e.key === "s") movePlayer('down');
+                    if (e.key === "ArrowLeft" || e.key === "a") movePlayer('left');
+                };
+                window.addEventListener("keydown", handleKeyDown);
+                return () => window.removeEventListener("keydown", handleKeyDown);
+            }, [movePlayer, gameStarted]);
+            const openPack = () => { if (packsAvailable <= 0 || isOpeningPack) return; setPacksAvailable(p => p - 1); setIsOpeningPack(true); setOpeningStage('ready'); setPackResult(null); };
+            const revealPack = () => {
+                if (openingStage !== 'ready') return;
+                setOpeningStage('shaking');
+                const rand = Math.random() * 100;
+                let rarity = 'Common';
+                if (rand < 0.5) rarity = 'Mythic'; else if (rand < 5.5) rarity = 'Legendary'; else if (rand < 15.5) rarity = 'Epic'; else if (rand < 30) rarity = 'Rare'; else if (rand < 50) rarity = 'Uncommon';
+                const skinsByRarity = { 'Common': ['orb', 'cube', 'triangle'], 'Uncommon': ['diamond', 'heart'], 'Rare': ['star', 'moon'], 'Epic': ['lightning', 'sun'], 'Legendary': ['crown', 'skull'], 'Mythic': ['ghost', 'flame'] };
+                const pool = skinsByRarity[rarity];
+                const wonSkin = pool[Math.floor(Math.random() * pool.length)];
+                setTimeout(() => {
+                    setPackResult(wonSkin);
+                    setOpeningStage('revealed');
+                    if (!unlockedSkins.includes(wonSkin)) { setUnlockedSkins(prev => [...prev, wonSkin]); toast({ title: `UNLOCKED: ${wonSkin.toUpperCase()}`, description: `You found a ${rarity} skin!`, className: "bg-neon-purple border-neon-pink text-white font-bold" }); }
+                    else { toast({ title: "DUPLICATE", description: `You already have the ${wonSkin} skin.`, className: "bg-gray-800 border-gray-600 text-gray-400" }); }
+                }, 2500);
+            };
+            const closePack = () => { setIsOpeningPack(false); setPackResult(null); setOpeningStage('ready'); };
+            
+            // MODIFIED: nextLevel accepts an isSkipped parameter to suppress notifications
+            const nextLevel = (isSkipped = false) => {
+                // Only show coin toast if NOT skipped by admin
+                if (!isSkipped) {
+                    setCoins(c => c + 10); 
+                    toast({ title: "LEVEL COMPLETE", description: "+10 COINS", className: "bg-yellow-900 border-yellow-500 text-white font-bold" });
+                } else {
+                    // Still give coins? The prompt says "10 coins notification dosent stay"
+                    // Usually skips don't award coins, but let's keep coins for mechanics, just hide toast
+                    setCoins(c => c + 10);
+                }
+                
+                const nextLvl = level + 1;
+                // Only show pack toast if NOT skipped, or maybe always show meaningful rewards? 
+                // Let's suppress pack toast too for admin skips to keep it clean
+                if (!isSkipped && nextLvl % 3 === 0) { setPacksAvailable(p => p + 1); toast({ title: "LOOT PACK EARNED!", description: "You've earned a skin pack!", className: "bg-neon-cyan border-white text-black font-bold animate-bounce" }); }
+                else if (isSkipped && nextLvl % 3 === 0) { setPacksAvailable(p => p + 1); } // Still award pack
+                if (nextLvl === 5 && !unlockedSkins.includes('slayer')) { setUnlockedSkins(p => [...p, 'slayer']); if (!isSkipped) toast({ title: "NEW SKIN!", description: "Boss Slayer acquired!", className: "bg-red-900 border-red-500 text-white font-bold" }); }
+                if (nextLvl === 10 && !unlockedSkins.includes('ninja')) { setUnlockedSkins(p => [...p, 'ninja']); if (!isSkipped) toast({ title: "NEW SKIN!", description: "Neon Ninja acquired!", className: "bg-purple-900 border-purple-500 text-white font-bold" }); }
+                if (nextLvl === 20 && !unlockedSkins.includes('master')) { setUnlockedSkins(p => [...p, 'master']); if (!isSkipped) toast({ title: "NEW SKIN!", description: "Grandmaster Crown acquired!", className: "bg-yellow-900 border-yellow-500 text-white font-bold" }); }
+                setLevel(l => l + 1);
+            };
+            const buyPowerUp = (type, cost) => {
+                if (coins < cost) { toast({ title: "INSUFFICIENT FUNDS", description: `Need ${cost} coins.`, variant: "destructive" }); return; }
+                setCoins(c => c - cost); spawnPowerUpNearPlayer(type); toast({ title: "PURCHASE SUCCESSFUL", description: `${type.toUpperCase()} deployed!`, className: "bg-green-900 border-green-500 text-white" });
+            };
+            
+            const buySkipLevel = () => {
+                const cost = 150;
+                if (coins < cost) { toast({ title: "INSUFFICIENT FUNDS", description: `Need ${cost} coins.`, variant: "destructive" }); return; }
+                setCoins(c => c - cost); setIsShopOpen(false); nextLevel(false); toast({ title: "LEVEL SKIPPED", description: "Moving to next sector...", className: "bg-neon-cyan border-white text-black font-bold" });
+            };
+            
+            const restart = () => { setLevel(1); setCoins(0); initLevel(1); };
+            const retry = () => { initLevel(level); };
+            
+            const handleAdminLogin = () => { 
+                if (adminPassword === ADMIN_CODE) { 
+                    setIsAdminAuthenticated(true); 
+                    setUnlockedSkins(Object.keys(SKIN_RARITIES));
+                    toast({ title: "Access Granted", description: "Welcome Commander. All skins unlocked.", className: "bg-red-900 border-red-500 text-red-100" }); 
+                } else {
+                    toast({ variant: "destructive", title: "Access Denied" }); 
+                }
+            };
+            
+            // IMPROVED SPAWN LOGIC: BFS to find NEAREST empty cell
+            const spawnPowerUpNearPlayer = (type) => {
+                if (!maze.length) return;
+                const { x, y } = playerPos;
+                
+                const queue = [{x, y, dist: 0}];
+                const visited = new Set([`${x},${y}`]);
+                const maxDist = 6; // Search radius
+                
+                let target = null;
+                while (queue.length > 0) {
+                    const current = queue.shift();
+                    
+                    // Found an empty spot that isn't player position
+                    if ((current.x !== x || current.y !== y) && !maze[current.y][current.x].item) {
+                        target = current;
+                        break;
+                    }
+                    
+                    if (current.dist >= maxDist) continue;
+                    // Check accessible neighbors (respecting walls for true path distance)
+                    const cell = maze[current.y][current.x];
+                    const neighbors = [];
+                    if (!cell.top && current.y > 0) neighbors.push({x: current.x, y: current.y - 1});
+                    if (!cell.bottom && current.y < maze.length - 1) neighbors.push({x: current.x, y: current.y + 1});
+                    if (!cell.left && current.x > 0) neighbors.push({x: current.x - 1, y: current.y});
+                    if (!cell.right && current.x < maze[0].length - 1) neighbors.push({x: current.x + 1, y: current.y});
+                    for (const n of neighbors) {
+                        const key = `${n.x},${n.y}`;
+                        if (!visited.has(key)) {
+                            visited.add(key);
+                            queue.push({...n, dist: current.dist + 1});
+                        }
+                    }
+                }
+                if (target) {
+                    const newMaze = [...maze];
+                    newMaze[target.y][target.x] = { ...newMaze[target.y][target.x], item: type };
+                    setMaze(newMaze);
+                    toast({ title: "Item Spawned", description: `${type} appeared nearby!`, className: "bg-slate-800 border-slate-600 text-white" });
+                } else {
+                    // Fallback if boxed in (e.g., start of level)
+                     spawnPowerUp(type);
+                }
+            };
+            const spawnPowerUp = (type) => {
+                if (!maze.length) return;
+                const newMaze = [...maze];
+                let placed = false, attempts = 0;
+                while (!placed && attempts < 100) {
+                    const x = Math.floor(Math.random() * maze[0].length);
+                    const y = Math.floor(Math.random() * maze.length);
+                    if (!newMaze[y][x].item && (x !== playerPos.x || y !== playerPos.y)) { newMaze[y][x] = { ...newMaze[y][x], item: type }; placed = true; }
+                    attempts++;
+                }
+                if (placed) { setMaze(newMaze); toast({ title: "Item Spawned", description: `Spawned ${type}`, className: "bg-slate-800 border-slate-600 text-white" }); }
+            };
+            // START SCREEN
+            if (!gameStarted) {
+                return (
+                    <div className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden font-press text-white">
+                        {/* Background Grid */}
+                        <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ 
+                            backgroundImage: 'linear-gradient(transparent 95%, #00ffff 95%), linear-gradient(90deg, transparent 95%, #ff00ff 95%)',
+                            backgroundSize: '40px 40px',
+                            transform: 'perspective(500px) rotateX(60deg) translateY(100px) scale(2)'
+                        }}></div>
+                        
+                        <div className="z-10 text-center space-y-12 px-4">
+                            <div className="space-y-4">
+                                <h1 className="text-3xl md:text-6xl text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 drop-shadow-[0_0_15px_rgba(255,255,255,0.5)] animate-pulse">STONE</h1>
+                                <h1 className="text-3xl md:text-6xl text-transparent bg-clip-text bg-gradient-to-b from-neon-cyan to-blue-600 drop-shadow-[0_0_25px_rgba(0,255,255,0.8)]">LABYRINTH</h1>
+                            </div>
+                            
+                            <div className="flex flex-col items-center gap-6">
+                                <Button onClick={() => { setGameStarted(true); setMusicEnabled(true); }} className="px-12 py-6 text-xl bg-neon-pink hover:bg-pink-400 text-white border-4 border-white shadow-[0_0_20px_rgba(255,0,255,0.6)] transition-transform hover:scale-105 active:scale-95">
+                                    <Play className="mr-4 w-6 h-6" fill="currentColor" /> START GAME
+                                </Button>
+                                <p className="text-gray-500 text-xs font-mono animate-pulse">TAP TO START</p>
+                            </div>
+                            
+                            <div className="absolute bottom-8 left-0 right-0 text-center text-[10px] text-gray-600 font-mono">
+                                V.2.2.0 - AUDIO EDITION
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+            if (!maze.length) return null;
+            return (
+                <div className="min-h-screen bg-background flex flex-col md:flex-row items-center justify-center font-mono relative overflow-hidden">
+                    
+                    {/* --- RESPONSIVE LAYOUT --- */}
+                    
+                    {/* MOBILE TOP BAR */}
+                    <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-md border-b border-gray-800 z-40 flex items-center justify-between px-4">
+                         <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-yellow-900/40 border border-yellow-600/50 rounded flex items-center justify-center"><Ticket size={12} className="text-yellow-500" /></div>
+                            <span className="text-white font-press text-lg">{String(level).padStart(2, '0')}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => setMusicEnabled(!musicEnabled)} className="mr-2 text-gray-400 hover:text-white">
+                                {musicEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+                            </button>
+                            <Clock size={16} className="text-neon-pink animate-pulse" />
+                            <span className="text-white font-press text-lg">{Math.floor(timeLeft)}s</span>
+                        </div>
+                    </div>
+                    {/* DESKTOP LEVEL INDICATOR (Left) - FIXED POSITION */}
+                    <div className="hidden md:flex absolute left-8 top-1/2 -translate-y-1/2 flex-col items-start z-30 pointer-events-none">
+                        <h2 className="text-neon-purple text-xs tracking-[0.2em] uppercase font-mono mb-2 opacity-80">LEVEL</h2>
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center justify-center w-8 h-8 bg-yellow-900/40 border border-yellow-600/50 rounded">
+                                <Ticket size={16} className="text-yellow-500" />
+                            </div>
+                            <div className="text-4xl font-press text-white text-glow-white">
+                                {String(level).padStart(2, '0')}
+                            </div>
+                            <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)]" />
+                        </div>
+                    </div>
+                    {/* DESKTOP TIME INDICATOR (Right) - FIXED POSITION */}
+                    <div className="hidden md:flex absolute right-8 top-1/2 -translate-y-1/2 flex-col items-end z-30 pointer-events-none">
+                        <h2 className="text-neon-pink text-xs tracking-[0.2em] uppercase font-mono mb-2 opacity-80">TIME</h2>
+                        <div className="flex items-center gap-4 mb-2">
+                             <div className="text-4xl font-press text-white text-glow-white">
+                                {Math.floor(timeLeft)}s
+                            </div>
+                        </div>
+                        <div className="pointer-events-auto">
+                            <button onClick={() => setMusicEnabled(!musicEnabled)} className="text-gray-500 hover:text-white flex items-center gap-2 text-xs font-mono bg-black/50 px-2 py-1 rounded border border-gray-800">
+                                {musicEnabled ? <><Volume2 size={14} /> MUSIC: ON</> : <><VolumeX size={14} /> MUSIC: OFF</>}
+                            </button>
+                        </div>
+                    </div>
+                    {/* MAZE (Center) - ADAPTIVE SIZE */}
+                    <div className="relative z-20 max-w-[90vw] max-h-[60vh] md:max-w-[60vw] md:max-h-[70vh] flex items-center justify-center mt-16 md:mt-0 mb-32 md:mb-0">
+                        <MazeRenderer maze={maze} cellSize={window.innerWidth < 768 ? 18 : CELL_SIZE} playerPos={playerPos} solutionPath={solutionPath} isSpeedActive={isSpeedActive} skin={activeSkin} />
+                    </div>
+                    {/* MOBILE D-PAD CONTROLS */}
+                    <div className="md:hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-40 grid grid-cols-3 gap-2 p-4 bg-black/20 rounded-full backdrop-blur-sm border border-white/10">
+                        <div />
+                        <button onTouchStart={(e) => { e.preventDefault(); movePlayer('up'); }} className="w-14 h-14 bg-gray-800/80 rounded-full flex items-center justify-center border-2 border-gray-600 active:bg-neon-cyan active:border-white transition-colors"><ChevronUp className="text-white" /></button>
+                        <div />
+                        <button onTouchStart={(e) => { e.preventDefault(); movePlayer('left'); }} className="w-14 h-14 bg-gray-800/80 rounded-full flex items-center justify-center border-2 border-gray-600 active:bg-neon-cyan active:border-white transition-colors"><ChevronLeft className="text-white" /></button>
+                        <div className="w-14 h-14 bg-black/50 rounded-full flex items-center justify-center"><div className="w-4 h-4 bg-gray-600 rounded-full" /></div>
+                        <button onTouchStart={(e) => { e.preventDefault(); movePlayer('right'); }} className="w-14 h-14 bg-gray-800/80 rounded-full flex items-center justify-center border-2 border-gray-600 active:bg-neon-cyan active:border-white transition-colors"><ChevronRight className="text-white" /></button>
+                        <div />
+                        <button onTouchStart={(e) => { e.preventDefault(); movePlayer('down'); }} className="w-14 h-14 bg-gray-800/80 rounded-full flex items-center justify-center border-2 border-gray-600 active:bg-neon-cyan active:border-white transition-colors"><ChevronDown className="text-white" /></button>
+                        <div />
+                    </div>
+                    {/* BOTTOM CONTROLS - RESPONSIVE BAR */}
+                    <div className="fixed bottom-0 left-0 right-0 h-16 bg-black/90 border-t border-gray-800 z-50 flex items-center justify-around px-2 md:justify-center md:gap-4 md:bg-transparent md:border-0 md:bottom-8 md:h-auto">
+                        <Button onClick={openPack} disabled={packsAvailable === 0 || isOpeningPack} className={`font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1 ${packsAvailable > 0 ? 'animate-pulse border-neon-purple text-white' : ''}`}>
+                            <Package className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> <span className="hidden md:inline">PACKS</span> ({packsAvailable})
+                        </Button>
+                        
+                        <Button onClick={() => setIsShopOpen(true)} className="font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1">
+                            <ShoppingCart className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> SHOP
+                        </Button>
+                        <Button onClick={() => setIsSkinsOpen(true)} className="font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1">
+                            <Palette className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> <span className="hidden md:inline">SKINS</span>
+                        </Button>
+                        <Button onClick={() => setIsAdminOpen(true)} className="font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1">
+                            ADMIN
+                        </Button>
+                        {/* MODALS - DECOUPLED FROM BUTTONS */}
+                        <Modal open={isShopOpen} onClose={() => setIsShopOpen(false)} className="border-yellow-500 text-white">
+                            <ModalHeader>
+                                <ModalTitle className="text-yellow-500 font-press text-sm flex items-center gap-2"><ShoppingCart size={18} /> BLACK MARKET</ModalTitle>
+                                <ModalDescription className="text-gray-400 text-xs">BALANCE: <span className="text-yellow-400 font-bold">{coins} Coins</span></ModalDescription>
+                            </ModalHeader>
+                            <div className="grid grid-cols-2 gap-3 py-4">
+                                <Button variant="outline" onClick={() => buyPowerUp('speed', 50)} className="flex flex-col h-auto py-3 border-blue-500/50 hover:bg-blue-950/50 text-blue-400"><div className="flex items-center gap-1 mb-1"><Zap size={16} /> SPEED</div><span className="text-[10px] text-gray-400">50 Coins</span></Button>
+                                <Button variant="outline" onClick={() => buyPowerUp('time', 50)} className="flex flex-col h-auto py-3 border-green-500/50 hover:bg-green-950/50 text-green-400"><div className="flex items-center gap-1 mb-1"><Clock size={16} /> TIME</div><span className="text-[10px] text-gray-400">50 Coins</span></Button>
+                                <Button variant="outline" onClick={() => buyPowerUp('vision', 50)} className="flex flex-col h-auto py-3 border-purple-500/50 hover:bg-purple-950/50 text-purple-400"><div className="flex items-center gap-1 mb-1"><Eye size={16} /> VISION</div><span className="text-[10px] text-gray-400">50 Coins</span></Button>
+                                <Button variant="outline" onClick={() => buyPowerUp('ghost', 50)} className="flex flex-col h-auto py-3 border-white/50 hover:bg-gray-800 text-white"><div className="flex items-center gap-1 mb-1"><Footprints size={16} /> GHOST</div><span className="text-[10px] text-gray-400">50 Coins</span></Button>
+                                <Button variant="outline" onClick={() => buyPowerUp('freeze', 50)} className="flex flex-col h-auto py-3 border-cyan-500/50 hover:bg-cyan-950/50 text-cyan-400 col-span-2"><div className="flex items-center gap-1 mb-1"><Snowflake size={16} /> FREEZE</div><span className="text-[10px] text-gray-400">50 Coins</span></Button>
+                                <Button variant="destructive" onClick={buySkipLevel} className="col-span-2 bg-red-900/50 hover:bg-red-800 border border-red-500 flex justify-between"><span className="flex items-center gap-2"><SkipForward size={16} /> SKIP LEVEL</span><span className="text-yellow-400 font-bold">150 Coins</span></Button>
+                            </div>
+                        </Modal>
+                        <Modal open={isSkinsOpen} onClose={() => setIsSkinsOpen(false)} className="border-neon-cyan text-white">
+                            <ModalHeader><ModalTitle className="text-neon-cyan font-press text-sm">CUSTOMIZATION</ModalTitle></ModalHeader>
+                            <div className="grid grid-cols-3 gap-2 max-h-[60vh] overflow-y-auto pr-2">
+                                {Object.entries(SKIN_RARITIES).map(([skin, rarity]) => {
+                                    if (rarity === 'Special' && !unlockedSkins.includes(skin)) return null;
+                                    const isUnlocked = unlockedSkins.includes(skin);
+                                    let rarityColor = 'text-gray-500';
+                                    if (rarity === 'Uncommon') rarityColor = 'text-blue-400';
+                                    if (rarity === 'Rare') rarityColor = 'text-purple-400';
+                                    if (rarity === 'Epic') rarityColor = 'text-yellow-400';
+                                    if (rarity === 'Legendary') rarityColor = 'text-orange-500';
+                                    if (rarity === 'Mythic') rarityColor = 'text-red-500 font-bold';
+                                    return (
+                                        <button key={skin} disabled={!isUnlocked} onClick={() => setActiveSkin(skin)} className={`relative flex flex-col items-center p-2 rounded border-2 ${activeSkin === skin ? 'border-neon-pink bg-pink-900/20' : 'border-gray-800 bg-black/50'} ${!isUnlocked ? 'opacity-50 grayscale' : ''}`}>
+                                            <div className="mb-2 scale-75"><MazeRenderer maze={[[{x:0,y:0,top:false,bottom:false,left:false,right:false}]]} cellSize={20} playerPos={{x:0,y:0}} skin={skin} /></div>
+                                            <span className="text-[10px] uppercase font-bold">{skin}</span>
+                                            <span className={`text-[8px] ${rarityColor}`}>{rarity}</span>
+                                            {!isUnlocked && <div className="absolute inset-0 flex items-center justify-center bg-black/60"><Lock size={12} className="text-gray-500" /></div>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </Modal>
+                        
+                         <Modal open={isAdminOpen} onClose={() => setIsAdminOpen(false)} className="border-neon-purple text-white">
+                            <ModalHeader><ModalTitle className="text-neon-purple font-press text-sm">SYSTEM OVERRIDE</ModalTitle></ModalHeader>
+                            {!isAdminAuthenticated ? (
+                                <div className="space-y-4">
+                                    <Input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="bg-gray-900 border-gray-700 text-white" placeholder="ENTER CODE" />
+                                    <Button onClick={handleAdminLogin} className="w-full bg-neon-purple text-white font-press text-xs">AUTHENTICATE</Button>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center"><span className="text-sm">Freeze Time</span><Switch checked={isTimeFrozen} onCheckedChange={setIsTimeFrozen} /></div>
+                                    <div className="flex justify-between items-center"><span className="text-sm">Vision</span><Switch checked={isVisionUnlimited} onCheckedChange={setIsVisionUnlimited} /></div>
+                                    <Button variant="secondary" size="sm" onClick={() => nextLevel(true)} className="w-full">SKIP LEVEL</Button>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <Button variant="outline" size="sm" onClick={() => spawnPowerUp('speed')} className="text-blue-400">Speed</Button>
+                                        <Button variant="outline" size="sm" onClick={() => spawnPowerUp('time')} className="text-yellow-400">Time</Button>
+                                        <Button variant="outline" size="sm" onClick={() => spawnPowerUp('ghost')} className="text-purple-400">Ghost</Button>
+                                    </div>
+                                </div>
+                            )}
+                        </Modal>
+                    </div>
+                    {/* STORY CUTSCENE OVERLAY */}
+                    {storyState !== 'none' && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/95 p-8 rounded-lg">
+                            <div className="text-center space-y-8">
+                                <Skull className="w-32 h-32 text-red-600 animate-bounce mx-auto" />
+                                <div className="bg-gray-900/80 border-2 border-red-800 p-6 rounded-lg"><p className="font-press text-red-500 text-lg">{currentDialog[storyStep]}</p></div>
+                                <Button onClick={advanceStory} className="bg-red-700 hover:bg-red-600 text-white font-press py-6 px-12 w-full">{storyStep < currentDialog.length - 1 ? "NEXT >" : "FIGHT!"}</Button>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* GAME OVER / VICTORY OVERLAY */}
+                    {gameState !== "playing" && !showCutscene && (
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center rounded-lg z-20">
+                            <Card className="bg-black border-2 border-white p-8 text-center w-80">
+                                {gameState === "won" ? (
+                                    <>
+                                        <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+                                        <h2 className="text-2xl font-press text-green-400 mb-2">ESCAPED!</h2>
+                                        <Button onClick={() => nextLevel(false)} className="w-full bg-neon-cyan hover:bg-cyan-400 text-black font-bold font-press mt-4 py-6">NEXT LEVEL</Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Timer className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                                        <h2 className="text-2xl font-press text-red-500 mb-2">TIME OUT</h2>
+                                        <Button onClick={retry} className="w-full bg-white hover:bg-gray-200 text-black font-bold font-press mt-4 py-6">TRY AGAIN</Button>
+                                        <Button variant="ghost" onClick={() => setLevel(1)} className="w-full text-gray-500 mt-2">Reset</Button>
+                                    </>
+                                )}
+                            </Card>
+                        </div>
+                    )}
+                    {/* OPENING PACK ANIMATION */}
+                    {isOpeningPack && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-md">
+                            <div className="flex flex-col items-center text-center">
+                                {openingStage === 'ready' && (
+                                    <div className="animate-in zoom-in duration-300 cursor-pointer group" onClick={revealPack}>
+                                        <Package className="w-40 h-40 text-neon-purple group-hover:scale-110 transition-transform drop-shadow-[0_0_30px_rgba(168,85,247,0.5)]" />
+                                        <h2 className="text-3xl font-press text-white mt-8 animate-bounce">CLICK TO OPEN</h2>
+                                    </div>
+                                )}
+                                {openingStage === 'shaking' && (
+                                    <div className="animate-shake"><Package className="w-40 h-40 text-white" /></div>
+                                )}
+                                {openingStage === 'revealed' && packResult && (
+                                    <div className="animate-in zoom-in duration-500 flex flex-col items-center">
+                                        <div className="scale-150 mb-8"><MazeRenderer maze={[[{x:0,y:0,top:false,bottom:false,left:false,right:false}]]} cellSize={60} playerPos={{x:0,y:0}} skin={packResult} /></div>
+                                        <h2 className="text-4xl font-press text-white mb-2">{packResult.toUpperCase()}</h2>
+                                        <div className="font-mono text-xl mb-2 px-6 py-2 rounded border-2 border-neon-pink text-neon-pink">{SKIN_RARITIES[packResult]}</div>
+                                        <p className="text-gray-400 font-mono text-sm mb-8">
+                                            {SKIN_RARITIES[packResult] === 'Mythic' ? '0.5%' : SKIN_RARITIES[packResult] === 'Legendary' ? '5%' : SKIN_RARITIES[packResult] === 'Epic' ? '10%' : SKIN_RARITIES[packResult] === 'Rare' ? '14.5%' : SKIN_RARITIES[packResult] === 'Uncommon' ? '20%' : '50%'} Chance
+                                        </p>
+                                        <Button onClick={closePack} className="bg-white text-black font-press px-8 py-6 text-lg hover:bg-gray-200">CONTINUE</Button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
         }
-      }
-    }
-  }
-
-  for(let i=0;i<MONSTER_COUNT;i++){
-    const pos = pickFreeCell();
-    const m = new Monster(pos.x, pos.z);
-    monsters.push(m);
-  }
-  hudMonsters.innerText = `Monsters: ${monsters.length}`;
-
-  // simple fps counter (declared before update uses it)
-  let frames = 0, accum = 0;
-
-  /* ----------------------
-     Sound (WebAudio)
-     ---------------------- */
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  function playTone(freq, time, type='sine', gain=0.05) {
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    g.gain.value = gain;
-    osc.connect(g);
-    g.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + time);
-    g.gain.setValueAtTime(g.gain.value, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + time);
-  }
-  function playFootstep(){ playTone(120 + Math.random()*30, 0.12, 'sine', 0.03); }
-  function playSwing(){ playTone(650 + Math.random()*120, 0.08, 'triangle', 0.08); playTone(320, 0.12, 'sine', 0.02); }
-  function playHit(){ playTone(240, 0.06, 'sawtooth', 0.12); playTone(980, 0.12, 'square', 0.04); }
-
-  /* ----------------------
-     HUD & messages
-     ---------------------- */
-  function showMessage(text, t=4000) {
-    messageBox.innerText = text;
-    messageBox.style.display = 'block';
-    if(t>0) setTimeout(()=> messageBox.style.display='none', t);
-  }
-
-  // restart
-  function restart(){
-    monsters.forEach(m => scene.remove(m.mesh));
-    monsters.length = 0;
-    particles.forEach(p => scene.remove(p));
-    particles.length = 0;
-    maze.generate();
-    const newOffsets = maze.buildMeshes();
-    player.setPosition(newOffsets.offsetX + CELL, newOffsets.offsetZ + CELL);
-    for(let i=0;i<MONSTER_COUNT;i++){
-      const pos = pickFreeCell();
-      const m = new Monster(pos.x, pos.z);
-      monsters.push(m);
-    }
-    hudMonsters.innerText = `Monsters: ${monsters.length}`;
-    player.health = 100;
-    hudHealth.innerText = `Health: ${player.health}`;
-    messageBox.style.display = 'none';
-    player.canMove = true;
-  }
-
-  /* ----------------------
-     Main loop
-     ---------------------- */
-  function update(dt) {
-    player.update(dt, input);
-    sword.update(dt);
-    for(const m of monsters) m.update(dt);
-    updateParticles(dt);
-
-    frames++;
-    accum += dt;
-    if(accum > 0.5){
-      hudFPS.innerText = `FPS: ${Math.round(frames/accum)}`;
-      frames = 0; accum = 0;
-    }
-  }
-
-  function render() {
-    renderer.render(scene, camera);
-  }
-
-  // animation frame
-  function animate() {
-    const dt = Math.min(0.05, clock.getDelta());
-    update(dt);
-    render();
-    requestAnimationFrame(animate);
-  }
-
-  // Start
-  animate();
-  showMessage('Click the screen to lock pointer and play', 3500);
-
-  // Note about favicon 404:
-  // The browser automatically tries to fetch /favicon.ico. If your server doesn't provide one you'll see a 404 in DevTools — it's harmless.
-
-})();
-</script>
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        function AppWithToast() {
+            const [toasts, setToasts] = useState([]);
+            const toast = useCallback(({ title, description, className, variant }) => {
+                const id = Date.now();
+                // Fixed: limit to 3 toasts
+                setToasts(prev => [...prev, { id, title, description, className, variant }].slice(-3));
+                // Fixed: 1.5s duration
+                setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 1500);
+            }, []);
+            return (
+                <ToastContext.Provider value={{ toasts, toast }}>
+                    <Game />
+                    <Toaster />
+                </ToastContext.Provider>
+            );
+        }
+        root.render(<AppWithToast />);
+    </script>
 </body>
 </html>
