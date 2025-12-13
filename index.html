@@ -509,22 +509,48 @@
                     localStorage.setItem('sl_username', username);
                 }
             }, [username]);
-            // Generate Mock Leaderboard
+            // Fixed Leaderboard Data (Simulated Global Database)
+            const GLOBAL_LEADERBOARD = [
+                { name: "VOID_WALKER", level: 99, date: "2024-12-01" },
+                { name: "MAZE_GOD", level: 85, date: "2024-11-15" },
+                { name: "ARCHITECT", level: 70, date: "2024-10-30" },
+                { name: "SPEED_RUNNER", level: 65, date: "2024-12-10" },
+                { name: "GLITCH_USER", level: 58, date: "2024-12-05" },
+                { name: "NEON_NINJA", level: 50, date: "2024-11-20" },
+                { name: "STONE_COLD", level: 45, date: "2024-12-08" },
+                { name: "LABYRINTH_LEGEND", level: 40, date: "2024-11-25" },
+                { name: "PIXEL_PIONEER", level: 35, date: "2024-12-02" },
+                { name: "CYBER_SAMURAI", level: 30, date: "2024-11-18" },
+                { name: "NOOB_SLAYER", level: 25, date: "2024-12-09" },
+                { name: "DOT_MASTER", level: 20, date: "2024-11-10" }
+            ];
+            // Generate Leaderboard
             useEffect(() => {
-                const names = ["ShadowRunner", "MazeKing", "LabyrinthLord", "StoneSeeker", "VoidWalker", "NeonDrifter", "PixelPioneer", "CyberSamurai"];
-                const mockData = names.map(name => ({
-                    name,
-                    level: Math.floor(Math.random() * 20) + 5
-                })).sort((a, b) => b.level - a.level);
-                
-                // Add user if they have played
+                // 1. Get user's high score
                 const userHighScore = parseInt(localStorage.getItem('sl_highscore') || '0');
-                if (userHighScore > 0 && username) {
-                    mockData.push({ name: username, level: userHighScore, isUser: true });
-                }
                 
-                setLeaderboardData(mockData.sort((a, b) => b.level - a.level).slice(0, 10));
-            }, [username, level]); // Update when level changes to keep user score fresh
+                // 2. Combine with global data
+                let combinedData = [...GLOBAL_LEADERBOARD];
+                
+                // 3. Insert user if they have a score
+                if (userHighScore > 0 && username) {
+                    // Check if user is already in the "global" list (mocking persistence)
+                    const existingIndex = combinedData.findIndex(p => p.name === username);
+                    if (existingIndex >= 0) {
+                         combinedData[existingIndex] = { name: username, level: Math.max(combinedData[existingIndex].level, userHighScore), isUser: true, date: "JUST NOW" };
+                    } else {
+                        combinedData.push({ name: username, level: userHighScore, isUser: true, date: "JUST NOW" });
+                    }
+                }
+                // 4. Sort by level (descending)
+                combinedData.sort((a, b) => b.level - a.level);
+                // 5. Assign ranks
+                const rankedData = combinedData.map((entry, index) => ({
+                    ...entry,
+                    rank: index + 1
+                }));
+                setLeaderboardData(rankedData);
+            }, [username, level, isLeaderboardOpen]); // Update when opened or level changes
             // Update High Score
             useEffect(() => {
                 const currentHigh = parseInt(localStorage.getItem('sl_highscore') || '0');
@@ -978,16 +1004,26 @@
                         </Modal>
                         <Modal open={isLeaderboardOpen} onClose={() => setIsLeaderboardOpen(false)} className="border-gray-500 text-white">
                             <ModalHeader><ModalTitle className="text-white font-press text-sm flex items-center gap-2"><Trophy size={18} className="text-yellow-500" /> HALL OF FAME</ModalTitle></ModalHeader>
-                            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
+                            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                                <div className="flex justify-between text-[10px] text-gray-500 mb-2 px-3">
+                                    <span>RANK / OPERATIVE</span>
+                                    <span>LEVEL</span>
+                                </div>
                                 {leaderboardData.map((entry, index) => (
-                                    <div key={index} className={`flex items-center justify-between p-3 rounded ${entry.isUser ? 'bg-neon-purple/20 border border-neon-purple' : 'bg-gray-900/50 border border-gray-800'}`}>
+                                    <div key={index} className={`flex items-center justify-between p-3 rounded transition-all ${entry.isUser ? 'bg-neon-purple/20 border border-neon-purple shadow-[0_0_10px_rgba(168,85,247,0.3)] scale-[1.02]' : 'bg-gray-900/50 border border-gray-800 hover:bg-gray-900'}`}>
                                         <div className="flex items-center gap-3">
-                                            <span className={`font-mono font-bold w-6 ${index === 0 ? 'text-yellow-400' : index === 1 ? 'text-gray-300' : index === 2 ? 'text-amber-600' : 'text-gray-500'}`}>#{index + 1}</span>
-                                            <span className={`font-mono text-sm ${entry.isUser ? 'text-white font-bold' : 'text-gray-300'}`}>{entry.name}</span>
+                                            <div className={`font-mono font-bold w-8 text-center ${entry.rank === 1 ? 'text-yellow-400 text-lg' : entry.rank === 2 ? 'text-gray-300' : entry.rank === 3 ? 'text-amber-600' : 'text-gray-600'}`}>
+                                                {entry.rank === 1 ? '👑' : `#${entry.rank}`}
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className={`font-mono text-sm ${entry.isUser ? 'text-white font-bold' : 'text-gray-300'}`}>{entry.name}</span>
+                                                {entry.date && <span className="text-[8px] text-gray-600">{entry.date}</span>}
+                                            </div>
                                         </div>
-                                        <span className="font-press text-xs text-neon-cyan">LVL {entry.level}</span>
+                                        <span className={`font-press text-xs ${entry.rank <= 3 ? 'text-yellow-400' : 'text-neon-cyan'}`}>LVL {entry.level}</span>
                                     </div>
                                 ))}
+                                {leaderboardData.length === 0 && <div className="text-center text-gray-500 py-8">CONNECTING TO SATELLITE...</div>}
                             </div>
                         </Modal>
                     </div>
@@ -1080,3 +1116,4 @@
     </script>
 </body>
 </html>
+
