@@ -58,6 +58,7 @@
         ::-webkit-scrollbar-track { background: #111; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #555; }
+
         /* Rarity Gradients */
         .rarity-bg-common { background: radial-gradient(circle, #9ca3af 0%, #374151 100%); }
         .rarity-bg-uncommon { background: radial-gradient(circle, #60a5fa 0%, #1e3a8a 100%); }
@@ -69,9 +70,11 @@
 </head>
 <body>
     <div id="root"></div>
+
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback, useRef } = React;
         const { motion, AnimatePresence } = window.Motion;
+
         // --- ICONS ---
         const Icon = ({ name, size = 24, className, ...props }) => {
             const iconData = lucide.icons[name];
@@ -126,11 +129,13 @@
         const VolumeX = (p) => <Icon name="VolumeX" {...p} />;
         const User = (p) => <Icon name="User" {...p} />;
         const BarChart2 = (p) => <Icon name="BarChart2" {...p} />;
+
         // --- AUDIO SYSTEM ---
         const useMusic = (enabled) => {
             const audioCtxRef = useRef(null);
             const intervalRef = useRef(null);
             const isPlayingRef = useRef(false);
+
             useEffect(() => {
                 if (enabled && !audioCtxRef.current) {
                     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -165,6 +170,7 @@
                         console.error("Error playing note", e);
                     }
                 };
+
                 const startSequencer = () => {
                     if (!audioCtxRef.current || isPlayingRef.current) return;
                     isPlayingRef.current = true;
@@ -175,8 +181,10 @@
                     const scheduleAheadTime = 0.1;
                     // Ensure currentTime is available
                     let nextNoteTime = audioCtxRef.current.currentTime;
+
                     const bassLine = [65.41, 65.41, 77.78, 87.31]; // C2, C2, D#2, F2
                     const arpLine = [261.63, 311.13, 392.00, 523.25]; // C4, D#4, G4, C5
+
                     const scheduler = () => {
                         // Safety check if audio context was closed
                         if (!audioCtxRef.current) return;
@@ -201,6 +209,7 @@
                             if (step % 4 === 2) {
                                 playNote(150, 'triangle', 0.05, nextNoteTime, 0.1);
                             }
+
                             const secondsPerBeat = 60.0 / tempo;
                             nextNoteTime += 0.25 * secondsPerBeat; // 16th notes
                             step++;
@@ -213,6 +222,7 @@
                     }
                     scheduler();
                 };
+
                 const stopSequencer = () => {
                     if (intervalRef.current) clearTimeout(intervalRef.current);
                     if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
@@ -220,14 +230,17 @@
                     }
                     isPlayingRef.current = false;
                 };
+
                 if (enabled) {
                     startSequencer();
                 } else {
                     stopSequencer();
                 }
+
                 return () => stopSequencer();
             }, [enabled]);
         };
+
         // --- UI COMPONENTS ---
         const Button = ({ children, className, variant = "default", size = "default", ...props }) => {
             const baseStyles = "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
@@ -241,6 +254,7 @@
             const sizes = { default: "h-9 px-4 py-2", sm: "h-8 rounded-md px-3 text-xs", lg: "h-10 rounded-md px-8", icon: "h-9 w-9" };
             return <button className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`} {...props}>{children}</button>;
         };
+
         const Card = ({ className, ...props }) => <div className={`rounded-xl border bg-card text-card-foreground shadow ${className}`} {...props} />;
         const Input = ({ className, ...props }) => <input className={`flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${className}`} {...props} />;
         const Switch = ({ checked, onCheckedChange, className }) => (
@@ -248,6 +262,7 @@
                 <span className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${checked ? 'translate-x-4 bg-white' : 'translate-x-0 bg-white'}`} />
             </button>
         );
+
         // Fixed Modal Component
         const Modal = ({ open, onClose, children, className }) => {
             if (!open) return null;
@@ -266,6 +281,7 @@
         const ModalHeader = ({ className, ...props }) => <div className={`flex flex-col space-y-1.5 text-center sm:text-left mb-4 ${className}`} {...props} />;
         const ModalTitle = ({ className, ...props }) => <h2 className={`text-lg font-semibold leading-none tracking-tight ${className}`} {...props} />;
         const ModalDescription = ({ className, ...props }) => <p className={`text-sm text-muted-foreground mt-2 ${className}`} {...props} />;
+
         // Toast System
         const ToastContext = React.createContext({});
         const useToast = () => React.useContext(ToastContext);
@@ -284,6 +300,7 @@
                 </div>
             );
         };
+
         // --- MAZE LOGIC ---
         function generateMaze(width, height) {
             const grid = [];
@@ -342,6 +359,7 @@
             }
             return grid;
         }
+
         function solveMaze(grid, start, end) {
             const queue = [];
             const visited = new Set();
@@ -366,6 +384,7 @@
             }
             return [];
         }
+
         const SKIN_RARITIES = {
             'orb': 'Common', 'cube': 'Common', 'triangle': 'Common',
             'diamond': 'Uncommon', 'heart': 'Uncommon',
@@ -375,6 +394,7 @@
             'ghost': 'Mythic', 'flame': 'Mythic',
             'slayer': 'Special', 'ninja': 'Special', 'master': 'Special'
         };
+
         const RARITY_COLORS = {
             'Common': '#9ca3af',
             'Uncommon': '#60a5fa',
@@ -384,6 +404,7 @@
             'Mythic': '#f87171',
             'Special': '#f472b6'
         };
+
         function MazeRenderer({ maze, cellSize, playerPos, solutionPath, isSpeedActive, skin = 'orb' }) {
             const width = maze[0].length * cellSize;
             const height = maze.length * cellSize;
@@ -401,6 +422,7 @@
                 });
                 return wallPaths.join(" ");
             }, [maze, cellSize]);
+
             const solutionPathD = useMemo(() => {
                 if (!solutionPath || solutionPath.length === 0) return "";
                 return solutionPath.map((p, i) => {
@@ -409,6 +431,7 @@
                     return `${i === 0 ? 'M' : 'L'}${x},${y}`;
                 }).join(" ");
             }, [solutionPath, cellSize]);
+
             const renderPlayerSkin = () => {
                 const commonProps = { className: "text-neon-pink drop-shadow-[0_0_8px_rgba(236,72,153,0.8)]", size: cellSize * 0.7, strokeWidth: 2.5 };
                 switch (skin) {
@@ -430,6 +453,7 @@
                     default: return <Circle {...commonProps} fill="currentColor" className="text-neon-pink drop-shadow-[0_0_8px_rgba(236,72,153,0.8)]" />;
                 }
             };
+
             return (
                 <div className={`relative rounded-lg border-2 transition-colors duration-300 ${isSpeedActive ? 'border-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.5)]' : 'border-neon-cyan shadow-[0_0_20px_rgba(0,255,255,0.3)]'} bg-black/50 p-4 backdrop-blur-sm`}>
                     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
@@ -461,9 +485,11 @@
                 </div>
             );
         }
+
         const CELL_SIZE = 25;
         const INITIAL_TIME = 30;
         const ADMIN_CODE = "sussybaka120956";
+
         function Game() {
             const { toast } = useToast();
             const [username, setUsername] = useState(() => localStorage.getItem('sl_username') || '');
@@ -500,68 +526,96 @@
             const [storyState, setStoryState] = useState('intro');
             const [storyStep, setStoryStep] = useState(0);
             const [musicEnabled, setMusicEnabled] = useState(false);
-            // Mock Leaderboard Data
+            const [levelStartTime, setLevelStartTime] = useState(0);
+            const [levelCompletionTime, setLevelCompletionTime] = useState(0);
+            const [starsEarned, setStarsEarned] = useState(0);
+
+            // Leaderboard Data
             const [leaderboardData, setLeaderboardData] = useState([]);
+
             // Start music when game starts
             useMusic(musicEnabled && gameStarted);
+
             useEffect(() => {
                 if (username) {
                     localStorage.setItem('sl_username', username);
                 }
             }, [username]);
-            // Fixed Leaderboard Data (Simulated Global Database)
-            const GLOBAL_LEADERBOARD = [
-                { name: "VOID_WALKER", level: 99, date: "2024-12-01" },
-                { name: "MAZE_GOD", level: 85, date: "2024-11-15" },
-                { name: "ARCHITECT", level: 70, date: "2024-10-30" },
-                { name: "SPEED_RUNNER", level: 65, date: "2024-12-10" },
-                { name: "GLITCH_USER", level: 58, date: "2024-12-05" },
-                { name: "NEON_NINJA", level: 50, date: "2024-11-20" },
-                { name: "STONE_COLD", level: 45, date: "2024-12-08" },
-                { name: "LABYRINTH_LEGEND", level: 40, date: "2024-11-25" },
-                { name: "PIXEL_PIONEER", level: 35, date: "2024-12-02" },
-                { name: "CYBER_SAMURAI", level: 30, date: "2024-11-18" },
-                { name: "NOOB_SLAYER", level: 25, date: "2024-12-09" },
-                { name: "DOT_MASTER", level: 20, date: "2024-11-10" }
-            ];
-            // Generate Leaderboard
+
+            // Fetch Real Leaderboard from API
             useEffect(() => {
-                // 1. Get user's high score
-                const userHighScore = parseInt(localStorage.getItem('sl_highscore') || '0');
-                
-                // 2. Combine with global data
-                let combinedData = [...GLOBAL_LEADERBOARD];
-                
-                // 3. Insert user if they have a score
-                if (userHighScore > 0 && username) {
-                    // Check if user is already in the "global" list (mocking persistence)
-                    const existingIndex = combinedData.findIndex(p => p.name === username);
-                    if (existingIndex >= 0) {
-                         combinedData[existingIndex] = { name: username, level: Math.max(combinedData[existingIndex].level, userHighScore), isUser: true, date: "JUST NOW" };
-                    } else {
-                        combinedData.push({ name: username, level: userHighScore, isUser: true, date: "JUST NOW" });
+                const fetchLeaderboard = async () => {
+                    try {
+                        const response = await fetch('/api/leaderboard?limit=50');
+                        if (!response.ok) throw new Error('Failed to fetch leaderboard');
+                        
+                        const entries = await response.json();
+                        
+                        // Format dates and add rank
+                        const formattedEntries = entries.map((entry, index) => {
+                            const date = new Date(entry.createdAt);
+                            const now = new Date();
+                            const diffMs = now - date;
+                            const diffMins = Math.floor(diffMs / 60000);
+                            const diffHours = Math.floor(diffMs / 3600000);
+                            const diffDays = Math.floor(diffMs / 86400000);
+                            
+                            let dateStr;
+                            if (diffMins < 1) dateStr = "JUST NOW";
+                            else if (diffMins < 60) dateStr = `${diffMins}m ago`;
+                            else if (diffHours < 24) dateStr = `${diffHours}h ago`;
+                            else if (diffDays < 7) dateStr = `${diffDays}d ago`;
+                            else dateStr = date.toLocaleDateString();
+                            
+                            return {
+                                name: entry.username,
+                                level: entry.level,
+                                date: dateStr,
+                                rank: index + 1,
+                                isUser: entry.username === username
+                            };
+                        });
+                        
+                        setLeaderboardData(formattedEntries);
+                    } catch (error) {
+                        console.error('Failed to load leaderboard:', error);
+                        setLeaderboardData([]);
                     }
+                };
+                
+                if (isLeaderboardOpen) {
+                    fetchLeaderboard();
                 }
-                // 4. Sort by level (descending)
-                combinedData.sort((a, b) => b.level - a.level);
-                // 5. Assign ranks
-                const rankedData = combinedData.map((entry, index) => ({
-                    ...entry,
-                    rank: index + 1
-                }));
-                setLeaderboardData(rankedData);
-            }, [username, level, isLeaderboardOpen]); // Update when opened or level changes
-            // Update High Score
+            }, [username, isLeaderboardOpen]); // Fetch when leaderboard opens
+
+            // Update High Score and Submit to API
             useEffect(() => {
                 const currentHigh = parseInt(localStorage.getItem('sl_highscore') || '0');
-                if (level > currentHigh) {
+                if (level > currentHigh && username) {
                     localStorage.setItem('sl_highscore', level.toString());
+                    
+                    // Submit to backend
+                    fetch('/api/leaderboard', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, level })
+                    }).catch(err => console.error('Failed to submit score:', err));
                 }
-            }, [level]);
+            }, [level, username]);
+
             const introDialog = [ "Welcome, little dot...", "I am the ARCHITECT of the STONE LABYRINTH.", "You seem lost. Good.", "Escape is impossible, but you are welcome to try.", "Survive my trials, and perhaps I will let you leave...", "BEGIN!" ];
             const level25Dialog = [ "IMPRESSIVE...", "You actually survived this long?", "But your luck ends HERE.", "I'm done playing fair.", "Let's see how you handle... TRUE CHAOS!", "DIE!" ];
             const victoryDialog = [ "NO...", "IMPOSSIBLE!", "My masterpiece... RUINED!", "You have bested me, anomaly.", "The labyrinth is yours.", "Begone." ];
+
+            // Calculate stars based on time remaining
+            const calculateStars = (timeRemaining, totalTime) => {
+                const percentRemaining = (timeRemaining / totalTime) * 100;
+                if (percentRemaining >= 50) return 3; // 50%+ time left = 3 stars
+                if (percentRemaining >= 25) return 2; // 25-50% time left = 2 stars
+                return 1; // Less than 25% = 1 star
+            };
             const currentDialog = storyState === 'intro' ? introDialog : storyState === 'level25_intro' ? level25Dialog : victoryDialog;
+
             const advanceStory = () => {
                 if (storyStep < currentDialog.length - 1) { setStoryStep(s => s + 1); }
                 else {
@@ -571,6 +625,7 @@
                     else if (storyState === 'victory') setGameState("won");
                 }
             };
+
             useEffect(() => {
                 if ((isVisionUnlimited || isVisionPowerupActive) && maze.length > 0) {
                     const path = solveMaze(maze, playerPos, {x: maze[0].length-1, y: maze.length-1});
@@ -579,6 +634,7 @@
                     setSolutionPath(undefined);
                 }
             }, [isVisionUnlimited, isVisionPowerupActive, playerPos, maze]);
+
             useEffect(() => {
                 if (!gameStarted) return;
                 if (level === 25 && gameState === "playing" && storyState === 'none') {
@@ -599,6 +655,7 @@
                     return () => clearInterval(chaosInterval);
                 }
             }, [level, gameState, storyState, playerPos, gameStarted]);
+
             const initLevel = useCallback((lvl) => {
                 const isBossLevel = lvl % 5 === 0;
                 let width, height;
@@ -617,11 +674,13 @@
                 setMaze(generateMaze(width, height)); setPlayerPos({ x: 0, y: 0 });
                 let newTimeLimit;
                 if (lvl <= 3) newTimeLimit = 50; else if (lvl <= 7) newTimeLimit = 60; else newTimeLimit = 110;
-                setTimeLeft(newTimeLimit); setGameState("playing"); setSolutionPath(undefined);
+                setTimeLeft(newTimeLimit); setLevelStartTime(newTimeLimit); setGameState("playing"); setSolutionPath(undefined);
                 setIsSpeedActive(false); setIsGhostActive(false); setIsTimeFrozenPowerup(false); setIsVisionPowerupActive(false);
-                setIsTimeFrozen(false); setIsVisionUnlimited(false); setShowCutscene(false);
+                setIsTimeFrozen(false); setIsVisionUnlimited(false); setShowCutscene(false); setStarsEarned(0);
             }, []);
+
             useEffect(() => { if (gameStarted) initLevel(level); }, [level, initLevel, gameStarted]);
+
             useEffect(() => {
                 if (!gameStarted) return;
                 if (gameState !== "playing") return;
@@ -629,6 +688,7 @@
                 const timer = setInterval(() => { setTimeLeft((t) => { if (t <= 1) { setGameState("lost"); return 0; } return t - 1; }); }, 1000);
                 return () => clearInterval(timer);
             }, [gameState, isTimeFrozen, isTimeFrozenPowerup, storyState, gameStarted]);
+
             // Core movement logic refactored for reuse
             const movePlayer = useCallback((direction) => {
                 if (gameState !== "playing" || showCutscene) return;
@@ -637,21 +697,23 @@
                 const currentCell = maze[y][x];
                 let nextX = x, nextY = y;
                 const canMove = (dir) => isGhostActive || !currentCell[dir];
+
                 if (direction === 'up' && canMove('top')) nextY--;
                 if (direction === 'right' && canMove('right')) nextX++;
                 if (direction === 'down' && canMove('bottom')) nextY++;
                 if (direction === 'left' && canMove('left')) nextX--;
+
                 if (nextY < 0 || nextY >= maze.length || nextX < 0 || nextX >= maze[0].length) return;
                 
                 if (nextX !== x || nextY !== y) {
                     setPlayerPos({ x: nextX, y: nextY });
                     const nextCell = maze[nextY][nextX];
                     if (nextCell.item) {
-                        if (nextCell.item === 'time') { setTimeLeft(t => t + 5); toast({ title: "Time Extended!", description: "+5 Seconds added", className: "bg-yellow-900 border-yellow-500 text-yellow-100" }); }
+                        if (nextCell.item === 'time') { setTimeLeft(t => t + 5); toast({ title: "Time Extended!", description: "+5 seconds added", className: "bg-yellow-900 border-yellow-500 text-yellow-100" }); }
                         else if (nextCell.item === 'speed') { setIsSpeedActive(true); setTimeout(() => setIsSpeedActive(false), 5000); toast({ title: "Speed Boost!", description: "Super fast movement!", className: "bg-blue-900 border-blue-500 text-blue-100" }); }
                         else if (nextCell.item === 'vision') { setIsVisionPowerupActive(true); setTimeout(() => setIsVisionPowerupActive(false), 3000); toast({ title: "Path Revealed!", description: "Showing optimal path", className: "bg-green-900 border-green-500 text-green-100" }); }
                         else if (nextCell.item === 'ghost') { setIsGhostActive(true); setTimeout(() => setIsGhostActive(false), 5000); toast({ title: "Ghost Mode!", description: "Walk through walls!", className: "bg-purple-900 border-purple-500 text-purple-100" }); }
-                        else if (nextCell.item === 'freeze') { setIsTimeFrozenPowerup(true); setTimeout(() => setIsTimeFrozenPowerup(false), 10000); toast({ title: "Time Freeze!", description: "Timer stopped for 10s!", className: "bg-cyan-900 border-cyan-500 text-cyan-100" }); }
+                        else if (nextCell.item === 'freeze') { setIsTimeFrozenPowerup(true); setTimeout(() => setIsTimeFrozenPowerup(false), 10000); toast({ title: "Time Freeze!", description: "Timer stopped for 10 seconds!", className: "bg-cyan-900 border-cyan-500 text-cyan-100" }); }
                         const newMaze = [...maze];
                         newMaze[nextY][nextX] = { ...nextCell, item: undefined };
                         setMaze(newMaze);
@@ -659,11 +721,15 @@
                     if (nextX === maze[0].length - 1 && nextY === maze.length - 1) {
                         if (level === 25) setStoryState('victory');
                         else { 
+                            const stars = calculateStars(timeLeft, levelStartTime);
+                            setStarsEarned(stars);
+                            setLevelCompletionTime(timeLeft);
                             setGameState("won");
                         }
                     }
                 }
             }, [maze, gameState, showCutscene, playerPos, isGhostActive, level]);
+
             useEffect(() => {
                 if (!gameStarted) return;
                 const handleKeyDown = (e) => {
@@ -678,6 +744,7 @@
                 window.addEventListener("keydown", handleKeyDown);
                 return () => window.removeEventListener("keydown", handleKeyDown);
             }, [movePlayer, gameStarted]);
+
             const openPack = () => { if ((packsAvailable <= 0 && !isInfinitePacks) || isOpeningPack) return; if (!isInfinitePacks) setPacksAvailable(p => p - 1); setIsOpeningPack(true); setOpeningStage('ready'); setPackResult(null); };
             
             // BRAWL STARS STYLE PACK OPENING
@@ -693,9 +760,11 @@
                     const pool = skinsByRarity[rarity];
                     const wonSkin = pool[Math.floor(Math.random() * pool.length)];
                     setPackResult(wonSkin);
+
                     // Sequence: Shaking -> Flash -> Reveal
                     setTimeout(() => setOpeningStage('flash'), 1000);
                     setTimeout(() => setOpeningStage('reveal'), 1500);
+
                     // Unlock logic runs in background
                     if (!unlockedSkins.includes(wonSkin)) { setUnlockedSkins(prev => [...prev, wonSkin]); }
                 } else if (openingStage === 'reveal') {
@@ -708,8 +777,10 @@
             
             const nextLevel = (isSkipped = false) => {
                 if (!isSkipped) {
-                    setCoins(c => c + 10); 
-                    toast({ title: "LEVEL COMPLETE", description: "+10 COINS", className: "bg-yellow-900 border-yellow-500 text-white font-bold" });
+                    // Bonus coins based on stars earned
+                    const bonusCoins = starsEarned === 3 ? 30 : starsEarned === 2 ? 20 : 10;
+                    setCoins(c => c + bonusCoins); 
+                    toast({ title: "LEVEL COMPLETE", description: `+${bonusCoins} COINS (${starsEarned} ${starsEarned === 1 ? 'Star' : 'Stars'})`, className: "bg-yellow-900 border-yellow-500 text-white font-bold" });
                 } else {
                     setCoins(c => c + 10);
                 }
@@ -717,11 +788,13 @@
                 const nextLvl = level + 1;
                 if (!isSkipped && nextLvl % 3 === 0) { setPacksAvailable(p => p + 1); toast({ title: "LOOT PACK EARNED!", description: "You've earned a skin pack!", className: "bg-neon-cyan border-white text-black font-bold animate-bounce" }); }
                 else if (isSkipped && nextLvl % 3 === 0) { setPacksAvailable(p => p + 1); }
+
                 if (nextLvl === 5 && !unlockedSkins.includes('slayer')) { setUnlockedSkins(p => [...p, 'slayer']); if (!isSkipped) toast({ title: "NEW SKIN!", description: "Boss Slayer acquired!", className: "bg-red-900 border-red-500 text-white font-bold" }); }
                 if (nextLvl === 10 && !unlockedSkins.includes('ninja')) { setUnlockedSkins(p => [...p, 'ninja']); if (!isSkipped) toast({ title: "NEW SKIN!", description: "Neon Ninja acquired!", className: "bg-purple-900 border-purple-500 text-white font-bold" }); }
                 if (nextLvl === 20 && !unlockedSkins.includes('master')) { setUnlockedSkins(p => [...p, 'master']); if (!isSkipped) toast({ title: "NEW SKIN!", description: "Grandmaster Crown acquired!", className: "bg-yellow-900 border-yellow-500 text-white font-bold" }); }
                 setLevel(l => l + 1);
             };
+
             const buyPowerUp = (type, cost) => {
                 if (coins < cost && !isInfiniteMoney) { toast({ title: "INSUFFICIENT FUNDS", description: `Need ${cost} coins.`, variant: "destructive" }); return; }
                 if (!isInfiniteMoney) setCoins(c => c - cost); spawnPowerUpNearPlayer(type); toast({ title: "PURCHASE SUCCESSFUL", description: `${type.toUpperCase()} deployed!`, className: "bg-green-900 border-green-500 text-white" });
@@ -756,6 +829,7 @@
                 const maxDist = 6; // Search radius
                 
                 let target = null;
+
                 while (queue.length > 0) {
                     const current = queue.shift();
                     
@@ -765,12 +839,14 @@
                     }
                     
                     if (current.dist >= maxDist) continue;
+
                     const cell = maze[current.y][current.x];
                     const neighbors = [];
                     if (!cell.top && current.y > 0) neighbors.push({x: current.x, y: current.y - 1});
                     if (!cell.bottom && current.y < maze.length - 1) neighbors.push({x: current.x, y: current.y + 1});
                     if (!cell.left && current.x > 0) neighbors.push({x: current.x - 1, y: current.y});
                     if (!cell.right && current.x < maze[0].length - 1) neighbors.push({x: current.x + 1, y: current.y});
+
                     for (const n of neighbors) {
                         const key = `${n.x},${n.y}`;
                         if (!visited.has(key)) {
@@ -779,6 +855,7 @@
                         }
                     }
                 }
+
                 if (target) {
                     const newMaze = [...maze];
                     newMaze[target.y][target.x] = { ...newMaze[target.y][target.x], item: type };
@@ -788,6 +865,7 @@
                      spawnPowerUp(type);
                 }
             };
+
             const spawnPowerUp = (type) => {
                 if (!maze.length) return;
                 const newMaze = [...maze];
@@ -800,6 +878,7 @@
                 }
                 if (placed) { setMaze(newMaze); toast({ title: "Item Spawned", description: `Spawned ${type}`, className: "bg-slate-800 border-slate-600 text-white" }); }
             };
+
             // START SCREEN & USERNAME
             if (!gameStarted) {
                 return (
@@ -848,7 +927,9 @@
                     </div>
                 );
             }
+
             if (!maze.length) return null;
+
             // Rarity color helper for pack opening
             const getRarityColor = (rarity) => {
                 if (rarity === 'Common') return '#9ca3af';
@@ -859,6 +940,7 @@
                 if (rarity === 'Mythic') return '#f87171';
                 return '#ffffff';
             };
+
             return (
                 <div className="min-h-screen bg-background flex flex-col md:flex-row items-center justify-center font-mono relative overflow-hidden">
                     
@@ -878,6 +960,7 @@
                             <span className="text-white font-press text-lg">{Math.floor(timeLeft)}s</span>
                         </div>
                     </div>
+
                     {/* DESKTOP LEVEL INDICATOR (Left) - FIXED POSITION */}
                     <div className="hidden md:flex absolute left-8 top-1/2 -translate-y-1/2 flex-col items-start z-30 pointer-events-none">
                         <h2 className="text-neon-purple text-xs tracking-[0.2em] uppercase font-mono mb-2 opacity-80">LEVEL</h2>
@@ -896,6 +979,7 @@
                             </Button>
                         </div>
                     </div>
+
                     {/* DESKTOP TIME INDICATOR (Right) - FIXED POSITION */}
                     <div className="hidden md:flex absolute right-8 top-1/2 -translate-y-1/2 flex-col items-end z-30 pointer-events-none">
                         <h2 className="text-neon-pink text-xs tracking-[0.2em] uppercase font-mono mb-2 opacity-80">TIME</h2>
@@ -910,10 +994,12 @@
                             </button>
                         </div>
                     </div>
+
                     {/* MAZE (Center) - ADAPTIVE SIZE */}
                     <div className="relative z-20 max-w-[90vw] max-h-[60vh] md:max-w-[60vw] md:max-h-[70vh] flex items-center justify-center mt-16 md:mt-0 mb-32 md:mb-0">
                         <MazeRenderer maze={maze} cellSize={window.innerWidth < 768 ? 18 : CELL_SIZE} playerPos={playerPos} solutionPath={solutionPath} isSpeedActive={isSpeedActive} skin={activeSkin} />
                     </div>
+
                     {/* MOBILE D-PAD CONTROLS */}
                     <div className="md:hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-40 grid grid-cols-3 gap-2 p-4 bg-black/20 rounded-full backdrop-blur-sm border border-white/10">
                         <div />
@@ -926,6 +1012,7 @@
                         <button onTouchStart={(e) => { e.preventDefault(); movePlayer('down'); }} className="w-14 h-14 bg-gray-800/80 rounded-full flex items-center justify-center border-2 border-gray-600 active:bg-neon-cyan active:border-white transition-colors"><ChevronDown className="text-white" /></button>
                         <div />
                     </div>
+
                     {/* BOTTOM CONTROLS - RESPONSIVE BAR */}
                     <div className="fixed bottom-0 left-0 right-0 h-16 bg-black/90 border-t border-gray-800 z-50 flex items-center justify-around px-2 md:justify-center md:gap-4 md:bg-transparent md:border-0 md:bottom-8 md:h-auto">
                         <Button onClick={openPack} disabled={packsAvailable === 0 || isOpeningPack} className={`font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1 ${packsAvailable > 0 ? 'animate-pulse border-neon-purple text-white' : ''}`}>
@@ -935,12 +1022,15 @@
                         <Button onClick={() => setIsShopOpen(true)} className="font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1">
                             <ShoppingCart className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> SHOP
                         </Button>
+
                         <Button onClick={() => setIsSkinsOpen(true)} className="font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1">
                             <Palette className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> <span className="hidden md:inline">SKINS</span>
                         </Button>
+
                         <Button onClick={() => setIsAdminOpen(true)} className="font-mono text-[10px] md:text-xs h-10 px-3 md:px-6 border bg-[#2a2a35] text-gray-300 border-gray-600 hover:bg-[#3a3a45] hover:text-white flex-1 md:flex-none mx-1">
                             ADMIN
                         </Button>
+
                         {/* MODALS */}
                         <Modal open={isShopOpen} onClose={() => setIsShopOpen(false)} className="border-yellow-500 text-white">
                             <ModalHeader>
@@ -956,6 +1046,7 @@
                                 <Button variant="destructive" onClick={buySkipLevel} className="col-span-2 bg-red-900/50 hover:bg-red-800 border border-red-500 flex justify-between"><span className="flex items-center gap-2"><SkipForward size={16} /> SKIP LEVEL</span><span className="text-yellow-400 font-bold">150 Coins</span></Button>
                             </div>
                         </Modal>
+
                         <Modal open={isSkinsOpen} onClose={() => setIsSkinsOpen(false)} className="border-neon-cyan text-white">
                             <ModalHeader><ModalTitle className="text-neon-cyan font-press text-sm">CUSTOMIZATION</ModalTitle></ModalHeader>
                             <div className="grid grid-cols-3 gap-2 max-h-[60vh] overflow-y-auto pr-2">
@@ -1002,6 +1093,7 @@
                                 </div>
                             )}
                         </Modal>
+
                         <Modal open={isLeaderboardOpen} onClose={() => setIsLeaderboardOpen(false)} className="border-gray-500 text-white">
                             <ModalHeader><ModalTitle className="text-white font-press text-sm flex items-center gap-2"><Trophy size={18} className="text-yellow-500" /> HALL OF FAME</ModalTitle></ModalHeader>
                             <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
@@ -1026,7 +1118,9 @@
                                 {leaderboardData.length === 0 && <div className="text-center text-gray-500 py-8">CONNECTING TO SATELLITE...</div>}
                             </div>
                         </Modal>
+
                     </div>
+
                     {/* STORY CUTSCENE OVERLAY */}
                     {storyState !== 'none' && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/95 p-8 rounded-lg">
@@ -1044,25 +1138,42 @@
                             <Card className="bg-black border-2 border-white p-8 text-center w-80">
                                 {gameState === "won" ? (
                                     <>
-                                        <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+                                        <div className="flex justify-center gap-2 mb-4">
+                                            {[1, 2, 3].map((starNum) => (
+                                                <Star 
+                                                    key={starNum} 
+                                                    size={32} 
+                                                    className={`transition-all duration-500 ${starNum <= starsEarned ? 'text-yellow-400 fill-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]' : 'text-gray-600'}`}
+                                                    style={{ 
+                                                        animationDelay: `${starNum * 200}ms`,
+                                                        transform: starNum <= starsEarned ? 'scale(1.2)' : 'scale(1)'
+                                                    }}
+                                                />
+                                            ))}
+                                        </div>
                                         <h2 className="text-2xl font-press text-green-400 mb-2">ESCAPED!</h2>
-                                        <div className="text-sm text-gray-400 mb-4">LEVEL {level} COMPLETE</div>
-                                        <Button onClick={() => nextLevel(false)} className="w-full bg-neon-cyan hover:bg-cyan-400 text-black font-bold font-press mt-4 py-6">NEXT LEVEL</Button>
+                                        <div className="text-sm text-gray-400 mb-2">LEVEL {level} COMPLETE</div>
+                                        <div className="text-xs text-neon-cyan mb-4">Time Remaining: {levelCompletionTime}s</div>
+                                        <div className="text-[10px] text-gray-500 mb-4">
+                                            {starsEarned === 3 ? 'Perfect! +30 Coins' : starsEarned === 2 ? 'Great! +20 Coins' : 'Complete! +10 Coins'}
+                                        </div>
+                                        <Button onClick={() => nextLevel(false)} className="w-full bg-neon-cyan hover:bg-cyan-400 text-black font-bold font-press mt-2 py-6">NEXT LEVEL</Button>
                                         <Button variant="ghost" onClick={() => setIsLeaderboardOpen(true)} className="w-full text-white mt-4"><BarChart2 size={16} className="mr-2" /> Leaderboard</Button>
                                     </>
                                 ) : (
                                     <>
                                         <Timer className="w-16 h-16 text-red-500 mx-auto mb-4" />
-                                        <h2 className="text-2xl font-press text-red-500 mb-2">TIME OUT</h2>
-                                        <div className="text-sm text-gray-400 mb-4">You reached Level {level}</div>
+                                        <h2 className="text-2xl font-press text-red-500 mb-2">TIME'S UP!</h2>
+                                        <div className="text-sm text-gray-400 mb-4">You Reached Level {level}</div>
                                         <Button onClick={retry} className="w-full bg-white hover:bg-gray-200 text-black font-bold font-press mt-4 py-6">TRY AGAIN</Button>
                                         <Button variant="ghost" onClick={() => setIsLeaderboardOpen(true)} className="w-full text-white mt-4"><BarChart2 size={16} className="mr-2" /> Leaderboard</Button>
-                                        <Button variant="ghost" onClick={() => setLevel(1)} className="w-full text-gray-500 mt-2">Reset</Button>
+                                        <Button variant="ghost" onClick={() => setLevel(1)} className="w-full text-gray-500 mt-2">Restart</Button>
                                     </>
                                 )}
                             </Card>
                         </div>
                     )}
+
                     {/* PACK OPENING ANIMATION */}
                     {isOpeningPack && (
                         <div className={`fixed inset-0 z-[100] flex items-center justify-center transition-colors duration-500 ${openingStage === 'flash' || openingStage === 'reveal' ? 'bg-white' : 'bg-black/95 backdrop-blur-md'}`} style={{ backgroundColor: openingStage === 'flash' || openingStage === 'reveal' ? getRarityColor(SKIN_RARITIES[packResult]) : undefined }}>
@@ -1095,6 +1206,7 @@
                 </div>
             );
         }
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         function AppWithToast() {
             const [toasts, setToasts] = useState([]);
@@ -1116,4 +1228,3 @@
     </script>
 </body>
 </html>
-
